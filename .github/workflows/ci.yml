@@ -22,6 +22,11 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - name: Desktop (Electron) tests
+        run: |
+          # Ubuntu 24.04 blocks the user namespaces Chromium's sandbox uses; allow them rather than test unsandboxed.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          xvfb-run -a npm run test:desktop
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

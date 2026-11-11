@@ -1,7 +1,8 @@
 import { App, toast } from "./app";
 // After app.ts so these rules follow pdf_viewer.css in the cascade.
 import "./styles.css";
-import { fromHandle, looksLikePdf } from "./files";
+import { desktop } from "./desktop";
+import { fromDesktop, fromHandle, looksLikePdf } from "./files";
 import { hydrateIcons } from "./icons";
 
 hydrateIcons();
@@ -34,12 +35,19 @@ if (fileParam) {
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const name = decodeURIComponent(url.pathname.split("/").pop() || "document.pdf");
-        await app.openFile({ name, bytes: new Uint8Array(await res.arrayBuffer()), handle: null });
+        await app.openFile({ name, bytes: new Uint8Array(await res.arrayBuffer()), target: null });
       })
       .catch((e) => toast(`Could not load ${fileParam}: ${e.message}`, "error"));
   }
 }
 
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+// Desktop build: a file passed on the command line or via "Open with".
+desktop
+  ?.initialFile()
+  .then((f) => f && app.openFile(fromDesktop(f)))
+  .catch((e) => toast(`Could not open the file: ${e.message}`, "error"));
+
+// The desktop shell serves the app from disk, so offline caching is web-only.
+if (import.meta.env.PROD && !desktop && "serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js").catch((e) => console.warn("Service worker not registered", e));
 }

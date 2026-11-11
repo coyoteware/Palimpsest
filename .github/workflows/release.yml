@@ -1,0 +1,53 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching package.json "version") to build the
+# Windows portable .exe, smoke-test it, and publish a GitHub release.
+# Run manually (Actions → Release → Run workflow) to get the .exe as a
+# workflow artifact without publishing anything.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tag matches package.json version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "$expected" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version ($expected)"
+            exit 1
+          fi
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run dist:win
+      - name: Smoke-test the packaged app
+        run: npm run test:desktop
+        env:
+          PALIMPSEST_EXE: ${{ github.workspace }}\release\win-unpacked\Palimpsest.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Palimpsest-windows-portable
+          path: release/*-portable.exe
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" release/*-portable.exe
+          --title "Palimpsest $GITHUB_REF_NAME" --generate-notes

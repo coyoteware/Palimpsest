@@ -3,31 +3,15 @@
   "version": "0.1.0",
   "description": "Open source PDF viewer and editor that runs as an installable Chromium app.",
   "license": "MIT",
+  "author": "Coyoteware",
+  "homepage": "https://github.com/coyoteware/Palimpsest",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coyoteware/Palimpsest.git"
+  },
   "private": true,
   "type": "module",
-  "scripts": {
-    "predev": "node scripts/copy-pdfjs-assets.mjs",
-    "dev": "vite",
-    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --port 4173 --strictPort",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:e2e": "playwright test --trace off",
-    "app": "node scripts/launch.mjs",
-    "icons": "node scripts/render-icons.mjs"
-  },
-  "dependencies": {
-    "pdf-lib": "1.17.1",
-    "pdfjs-dist": "6.5.438"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.63.0",
-    "@types/node": "^26.6.6",
-    "typescript": "^7.0.2",
-    "vite": "^8.3.8",
-    "vitest": "^5.1.0"
-  },
+  "main": "desktop/main.mjs",
   "engines": {
     "node": ">=22.13"
   },
@@ -38,5 +22,32 @@
     "pwa",
     "chromium",
     "pdf.js"
-  ]
+  ],
+  "scripts": {
+    "predev": "node scripts/copy-pdfjs-assets.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test --trace off",
+    "app": "node scripts/launch.mjs",
+    "icons": "node scripts/render-icons.mjs",
+    "desktop": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win portable --publish never",
+    "dist:linux": "npm run build && electron-builder --linux dir --publish never",
+    "test:desktop": "playwright test -c playwright.desktop.config.ts --trace off"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.6",
+    "electron": "45.3.0",
+    "electron-builder": "26.18.1",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.5.438",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
 }

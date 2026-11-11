@@ -4,3 +4,4 @@ public/pdfjs/
 test-results/
 playwright-report/
 *.log
+release/

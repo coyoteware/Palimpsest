@@ -77,8 +77,8 @@ interface EditorStates {
 }
 
 interface LoadOptions {
-  /** A different file (resets history, file handle, password). */
-  fresh?: { name: string; handle: FileSystemFileHandle | null };
+  /** A different file (resets history, save target, password). */
+  fresh?: { name: string; target: files.SaveTarget | null };
   page?: number;
   selection?: number[];
 }
@@ -97,7 +97,8 @@ export class App {
 
   doc: PDFDocumentProxy | null = null;
   fileName = "";
-  handle: FileSystemFileHandle | null = null;
+  /** Where Save writes; null until the document has a file to go back to. */
+  target: files.SaveTarget | null = null;
   #password: string | undefined;
   #docDirty = false;
   #annotDirty = false;
@@ -155,7 +156,9 @@ export class App {
     this.#wireDragAndDrop();
     container.addEventListener("wheel", (e) => this.#onWheel(e), { passive: false });
     window.addEventListener("beforeunload", (e) => {
-      if (this.dirty) e.preventDefault();
+      if (!this.dirty) return;
+      e.preventDefault();
+      e.returnValue = ""; // older Chromium (and Electron) still look at this
     });
     window.addEventListener("resize", () => this.#refit());
     this.#setSidebar(readPref("sidebar") !== "closed");
@@ -198,7 +201,7 @@ export class App {
   // ------------------------------------------------------------- loading
 
   async openFile(file: files.OpenedFile) {
-    return this.#load(file.bytes, { fresh: { name: file.name, handle: file.handle } });
+    return this.#load(file.bytes, { fresh: { name: file.name, target: file.target } });
   }
 
   async #load(bytes: Uint8Array, opts: LoadOptions): Promise<boolean> {
@@ -219,7 +222,7 @@ export class App {
     this.#password = opened.password;
     if (opts.fresh) {
       this.fileName = opts.fresh.name;
-      this.handle = opts.fresh.handle;
+      this.target = opts.fresh.target;
       this.history.clear();
       this.#docDirty = false;
     }
@@ -290,14 +293,14 @@ export class App {
     if (!this.doc || this.#busy) return;
     await this.#withBusy("Saving…", async () => {
       const bytes = await this.currentBytes();
-      if (this.handle && !saveAs) {
-        await files.writeToHandle(this.handle, bytes);
+      if (this.target && !saveAs) {
+        await this.target.write(bytes);
       } else {
-        const handle = await files.saveAs(this.fileName || "document.pdf", bytes);
-        if (handle === undefined) return; // cancelled
-        if (handle) {
-          this.handle = handle;
-          this.fileName = handle.name;
+        const target = await files.saveAs(this.fileName || "document.pdf", bytes);
+        if (target === undefined) return; // cancelled
+        if (target) {
+          this.target = target;
+          this.fileName = target.name;
         }
       }
       this.#docDirty = false;

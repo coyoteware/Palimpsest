@@ -1,12 +1,21 @@
 /**
- * File I/O. Uses the File System Access API when available (Chromium), so a
- * file opened from disk or from the OS "Open with" menu can be saved in place.
- * Falls back to <input type=file> and downloads elsewhere.
+ * File I/O. In the desktop build, native dialogs via the Electron bridge. In
+ * a browser, the File System Access API when available (Chromium), so a file
+ * opened from disk or from the OS "Open with" menu can be saved in place, with
+ * <input type=file> and downloads as the fallback.
  */
+import { desktop, type DesktopFile } from "./desktop";
+
+/** Somewhere a document can be written back to. */
+export interface SaveTarget {
+  readonly name: string;
+  write(bytes: Uint8Array): Promise<void>;
+}
+
 export interface OpenedFile {
   name: string;
   bytes: Uint8Array;
-  handle: FileSystemFileHandle | null;
+  target: SaveTarget | null;
 }
 
 type PermissionHandle = FileSystemFileHandle & {
@@ -30,8 +39,28 @@ const IMAGE_TYPES = [
 
 export const isAbort = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
 
+const handleTarget = (handle: FileSystemFileHandle): SaveTarget => ({
+  name: handle.name,
+  write: (bytes) => writeToHandle(handle, bytes),
+});
+
+const pathTarget = (name: string, path: string): SaveTarget => ({
+  name,
+  write: (bytes) => desktop!.write(path, bytes),
+});
+
+export const fromDesktop = (f: DesktopFile): OpenedFile => ({
+  name: f.name,
+  bytes: f.bytes,
+  target: pathTarget(f.name, f.path),
+});
+
 export async function fromFile(file: File, handle: FileSystemFileHandle | null = null): Promise<OpenedFile> {
-  return { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()), handle };
+  return {
+    name: file.name,
+    bytes: new Uint8Array(await file.arrayBuffer()),
+    target: handle ? handleTarget(handle) : null,
+  };
 }
 
 export async function fromHandle(handle: FileSystemFileHandle) {
@@ -59,6 +88,7 @@ function pickViaInput(input: HTMLInputElement): Promise<File[]> {
 
 /** Ask the user for PDF files. Returns [] if they cancel. */
 export async function pickPdfs(fallback: HTMLInputElement, multiple = false): Promise<OpenedFile[]> {
+  if (desktop) return (await desktop.openPdfs(multiple)).map(fromDesktop);
   if (win.showOpenFilePicker) {
     try {
       const handles = await win.showOpenFilePicker({ types: PDF_TYPES, multiple, id: "pdf" });
@@ -73,6 +103,10 @@ export async function pickPdfs(fallback: HTMLInputElement, multiple = false): Pr
 }
 
 export async function pickImage(fallback: HTMLInputElement): Promise<File | null> {
+  if (desktop) {
+    const img = await desktop.openImage();
+    return img && new File([img.bytes as Uint8Array<ArrayBuffer>], img.name, { type: img.type });
+  }
   if (win.showOpenFilePicker) {
     try {
       const [handle] = await win.showOpenFilePicker({ types: IMAGE_TYPES, id: "image" });
@@ -99,10 +133,17 @@ export async function writeToHandle(handle: FileSystemFileHandle, bytes: Uint8Ar
 }
 
 /**
- * "Save as": native picker when available, otherwise a download.
- * Returns the chosen handle, null for a download, or undefined if cancelled.
+ * "Save as": native dialog or picker when available, otherwise a download.
+ * Returns where it was saved, null for a download, or undefined if cancelled.
  */
-export async function saveAs(name: string, bytes: Uint8Array): Promise<FileSystemFileHandle | null | undefined> {
+export async function saveAs(name: string, bytes: Uint8Array): Promise<SaveTarget | null | undefined> {
+  if (desktop) {
+    const chosen = await desktop.saveAs(name);
+    if (!chosen) return undefined;
+    const target = pathTarget(chosen.name, chosen.path);
+    await target.write(bytes);
+    return target;
+  }
   if (win.showSaveFilePicker) {
     let handle: FileSystemFileHandle;
     try {
@@ -112,7 +153,7 @@ export async function saveAs(name: string, bytes: Uint8Array): Promise<FileSyste
       throw e;
     }
     await writeToHandle(handle, bytes);
-    return handle;
+    return handleTarget(handle);
   }
   download(name, bytes);
   return null;

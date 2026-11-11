@@ -15,9 +15,16 @@ An open source PDF viewer and editor that runs as an installable Chromium app. E
 - **Save in place**: a file opened from disk (or from the OS "Open with" menu once installed) is written back to the same file. Save as and print are also included.
 - **Works offline** once the app has been used, with light and dark themes.
 
-## Run it
+## Download (Windows)
 
-Requires Node.js 22.13 or later and a Chromium-based browser (Chrome, Chromium, Edge, Brave).
+Get `Palimpsest-<version>-portable.exe` from [Releases](https://github.com/coyoteware/Palimpsest/releases). It is a single file that needs no installation and no admin rights: run it, or drag a PDF onto it, or use **Open with → Choose another app** on a PDF.
+
+- The build isn't code-signed yet, so on first run Windows SmartScreen says "Windows protected your PC". Choose **More info → Run anyway**.
+- Each launch unpacks the app to a temporary folder first, so startup takes a few seconds. Settings live in `%APPDATA%\Palimpsest`.
+
+## Run from source
+
+Requires Node.js 22.13 or later. The browser options below also need a Chromium-based browser (Chrome, Chromium, Edge, Brave).
 
 ```bash
 npm install
@@ -37,11 +44,33 @@ This builds the app if needed, serves it on `127.0.0.1:4317`, and opens it in a 
 
 **Installed as a PWA** (the recommended way): run `npm run build && npm run preview`, open http://localhost:4173 in Chrome or Edge, and choose **Install** in the address bar. You get a standalone window, a launcher icon, and Palimpsest appears under "Open with" for PDF files. Any static host works for `dist/`. Installing needs HTTPS, except on localhost.
 
+**As the desktop (Electron) app:**
+
+```bash
+npm run desktop
+```
+
 **For development:**
 
 ```bash
 npm run dev
 ```
+
+## Building the portable .exe
+
+```bash
+npm run dist:win
+```
+
+This writes `release/Palimpsest-<version>-portable.exe`. Run it on Windows. On Linux or macOS the same command needs Wine to stamp the icon and version info into the exe. Without Wine, add `-- -c.win.signAndEditExecutable=false` to get a working exe with Electron's default icon.
+
+To publish a release, set `version` in `package.json`, commit, then push a matching tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The [Release workflow](.github/workflows/release.yml) builds the exe on a Windows runner, runs the desktop tests against it, and attaches it to a GitHub release. Running the workflow by hand (Actions → Release → Run workflow) builds and tests the exe without publishing; the exe is attached to the run as an artifact.
 
 ## Keyboard shortcuts
 
@@ -66,6 +95,9 @@ npm run dev
 | Rotation, metadata, blank pages | [pdf-lib](https://github.com/Hopding/pdf-lib) |
 | File access | File System Access API with `<input type=file>` and download fallbacks; `launchQueue` for OS file handling |
 | Offline | A small service worker (`public/sw.js`) |
+| Desktop / portable exe | [Electron](https://www.electronjs.org/) shell (`desktop/`) serving `dist/` from a private `app://` origin with a strict CSP; native open/save dialogs through a sandboxed preload bridge; packaged by [electron-builder](https://www.electron.build/) |
+
+In the desktop build the page can only write to files the user picked in a dialog or passed on the command line. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
 
 A page operation first folds pending annotations into the current bytes, transforms them, and reloads the result. Each step keeps a snapshot for undo. Annotation edits between page operations use pdf.js's own undo stack.
 
@@ -74,15 +106,20 @@ src/
   app.ts          UI controller: viewer wiring, tools, page ops, save, undo
   pageops.ts      page plans → pdf.js extractPages(); pdf-lib edits
   thumbnails.ts   page list: lazy thumbnails, selection, drag and drop
-  files.ts        open/save via File System Access API with fallbacks
+  files.ts        open/save: Electron bridge, File System Access API, or fallbacks
+  desktop.ts      types for the Electron bridge
   history.ts      document-level undo/redo snapshots
   print.ts        rasterised printing
   pdfjs.ts        pdf.js setup (worker, fonts, CMaps, WASM)
+desktop/
+  main.mjs        Electron main process: window, app:// protocol, dialogs, file writes
+  preload.cjs     the narrow bridge exposed to the page
 scripts/
   launch.mjs      `npm run app`: local server + Chromium app window
 tests/
   unit/           Vitest: page plans and assembly, run against pdf.js in Node
   e2e/            Playwright: the real app in Chromium; saved files are decoded and checked
+  desktop/        Playwright + Electron: command-line open, save in place, dialogs, sandboxing
 ```
 
 ## Testing
@@ -91,9 +128,12 @@ tests/
 npm run typecheck
 npm test
 npm run test:e2e
+npm run build && npm run test:desktop
 ```
 
-The end-to-end tests stub the native file pickers, drive the UI, and parse each saved PDF with pdf.js to check pages, rotation, annotations, form values and metadata. CI runs all three on every push (`.github/workflows/ci.yml`).
+On Linux without a display, run the desktop tests as `xvfb-run -a npm run test:desktop`. To test a packaged build, set `PALIMPSEST_EXE` to its executable.
+
+The end-to-end tests stub the native file pickers, drive the UI, and parse each saved PDF with pdf.js to check pages, rotation, annotations, form values and metadata. The desktop tests stub Electron's dialogs and check the files written to disk. CI runs everything on every push (`.github/workflows/ci.yml`). The release workflow also runs the desktop tests against the Windows build.
 
 ## Known limitations
 
@@ -106,4 +146,4 @@ The end-to-end tests stub the native file pickers, drive the UI, and parse each 
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Bundles pdf.js (Apache-2.0) and pdf-lib (MIT).
+MIT, see [LICENSE](LICENSE). Bundles pdf.js (Apache-2.0) and pdf-lib (MIT). The desktop build also ships Electron and Chromium, and their licence files are packaged with it.
