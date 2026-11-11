@@ -253,6 +253,38 @@ test("fills form fields", async ({ page }) => {
   expect(fields.agree).not.toBe("Off");
 });
 
+test("form values survive page operations and extraction", async ({ page }) => {
+  const fieldValues = (doc: Awaited<ReturnType<typeof inspect>>) =>
+    Object.fromEntries(doc.pages[0].annotations.filter((a) => a.fieldName).map((a) => [a.fieldName, a.fieldValue]));
+  const saves = () => page.evaluate(() => (window as unknown as { __saved: unknown[] }).__saved.length);
+  await openSample(page);
+  await page.locator('.annotationLayer input[type="text"]').first().fill("Ada Lovelace");
+  await page.locator('.annotationLayer input[type="checkbox"]').first().check();
+
+  // Saving a selection as a new file takes the unsaved values along.
+  await thumb(page, 0).click();
+  await thumb(page, 1).click({ modifiers: ["Shift"] });
+  await page.locator("#pgExtract").click();
+  await expect.poll(saves).toBe(1);
+  const extracted = await inspect((await lastSaved(page)).bytes);
+  expect(extracted.pages.map((p) => p.heading)).toEqual(["Page 1", "Page 2"]);
+  expect(fieldValues(extracted).name).toBe("Ada Lovelace");
+
+  // So does a page operation on the open document.
+  await thumb(page, 4).click();
+  await page.locator("#pgDelete").click();
+  await expect(pageCount(page)).toHaveText("/ 4");
+  await thumb(page, 0).click();
+  await expect(page.locator('.page[data-page-number="1"] .annotationLayer input[type="text"]')).toHaveValue("Ada Lovelace");
+  await page.locator("#btnSaveAs").click();
+  await expect.poll(saves).toBe(2);
+  const doc = await inspect((await lastSaved(page)).bytes);
+  expect(doc.pages.map((p) => p.heading)).toEqual(["Page 1", "Page 2", "Page 3", "Page 4"]);
+  const fields = fieldValues(doc);
+  expect(fields.name).toBe("Ada Lovelace");
+  expect(fields.agree).not.toBe("Off");
+});
+
 test("edits document properties", async ({ page }) => {
   await openSample(page);
   await page.locator("#btnProps").click();

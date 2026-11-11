@@ -347,7 +347,24 @@ export class App {
   #structural(label: string, plan: ops.PlanPage[], extras: Uint8Array[] = [], after: { page?: number; selection?: number[] } = {}) {
     const doc = this.#requireDoc();
     if (extras.length === 0 && ops.isIdentity(plan, doc.numPages)) return Promise.resolve();
-    return this.#edit(label, () => ops.assemble(doc, plan, extras), after);
+    return this.#edit(label, (current) => this.#assemble(plan, extras, current), after);
+  }
+
+  /**
+   * Assemble pages from the document as it would be saved now. pdf.js's page
+   * assembler takes new annotations from the pending edits but not changed
+   * form values, so when anything is pending it works from the saved bytes
+   * (`current`, or computed here) instead of the open document.
+   */
+  async #assemble(plan: ops.PlanPage[], extras: Uint8Array[] = [], current?: Uint8Array) {
+    const doc = this.#requireDoc();
+    if (doc.annotationStorage.size === 0) return ops.assemble(doc, plan, extras);
+    const { doc: saved } = await openPdf(current ?? (await this.currentBytes()), { password: this.#password });
+    try {
+      return await ops.assemble(saved, plan, extras);
+    } finally {
+      await saved.loadingTask.destroy();
+    }
   }
 
   rotate(delta: number) {
@@ -443,7 +460,7 @@ export class App {
     if (!doc || this.#busy) return;
     const pages = this.thumbs.targets;
     await this.#withBusy("Extracting pages…", async () => {
-      const bytes = await ops.assemble(doc, ops.extractPlan(pages));
+      const bytes = await this.#assemble(ops.extractPlan(pages));
       const label = pages.length === 1 ? `p${pages[0] + 1}` : `p${pages[0] + 1}-${pages.at(-1)! + 1}`;
       const saved = await files.saveAs(files.withSuffix(this.fileName || "document", `-${label}`), bytes);
       if (saved !== undefined) toast(`Saved ${plural(pages.length, "page")} to a new file`);
