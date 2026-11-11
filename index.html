@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Palimpsest</title>
+    <meta name="description" content="Open source PDF viewer and editor. Files never leave your device." />
+    <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b1d21" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div id="app" class="no-doc">
+      <header class="toolbar" role="toolbar" aria-label="Main">
+        <div class="group">
+          <button id="btnSidebar" class="icon needs-doc" data-icon="sidebar" title="Pages panel (F4)" aria-label="Toggle pages panel" aria-pressed="true"></button>
+          <button id="btnOpen" class="icon" data-icon="open" title="Open (Ctrl+O)" aria-label="Open"></button>
+          <button id="btnSave" class="icon needs-doc" data-icon="save" title="Save (Ctrl+S)" aria-label="Save"></button>
+          <button id="btnSaveAs" class="icon needs-doc" data-icon="saveAs" title="Save as… (Ctrl+Shift+S)" aria-label="Save as"></button>
+          <button id="btnPrint" class="icon needs-doc" data-icon="print" title="Print (Ctrl+P)" aria-label="Print"></button>
+        </div>
+        <div class="doc-title" id="docTitle" aria-live="polite"></div>
+
+        <div class="group needs-doc" aria-label="Navigation">
+          <button id="btnPrev" class="icon" data-icon="up" title="Previous page" aria-label="Previous page"></button>
+          <input id="pageNumber" class="page-input" type="text" inputmode="numeric" aria-label="Page number" value="1" />
+          <span class="muted" id="pageCount">/ 0</span>
+          <button id="btnNext" class="icon" data-icon="down" title="Next page" aria-label="Next page"></button>
+        </div>
+
+        <div class="group needs-doc" aria-label="Zoom">
+          <button id="btnZoomOut" class="icon" data-icon="minus" title="Zoom out (Ctrl+−)" aria-label="Zoom out"></button>
+          <select id="zoomSelect" aria-label="Zoom level">
+            <option value="auto">Automatic</option>
+            <option value="page-width">Page width</option>
+            <option value="page-fit">Whole page</option>
+            <option value="page-actual">Actual size</option>
+            <option value="0.5">50%</option>
+            <option value="0.75">75%</option>
+            <option value="1">100%</option>
+            <option value="1.25">125%</option>
+            <option value="1.5">150%</option>
+            <option value="2">200%</option>
+            <option value="3">300%</option>
+            <option value="4">400%</option>
+            <option value="custom" id="zoomCustom" hidden disabled></option>
+          </select>
+          <button id="btnZoomIn" class="icon" data-icon="plus" title="Zoom in (Ctrl+=)" aria-label="Zoom in"></button>
+        </div>
+
+        <div class="group tools needs-doc" role="radiogroup" aria-label="Editing tools">
+          <button class="icon tool" data-tool="none" data-icon="pointer" title="Select (V)" aria-label="Select" role="radio" aria-checked="true"></button>
+          <button class="icon tool" data-tool="text" data-icon="text" title="Add text (T)" aria-label="Add text" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="ink" data-icon="pen" title="Draw (D)" aria-label="Draw" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="highlight" data-icon="highlight" title="Highlight (H)" aria-label="Highlight" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="image" data-icon="image" title="Add image or signature (I)" aria-label="Add image" role="radio" aria-checked="false"></button>
+        </div>
+
+        <div class="group tool-options needs-doc" id="toolOptions" aria-label="Tool options">
+          <label class="opt" data-for="text ink" title="Color">
+            <input type="color" id="optColor" value="#000000" aria-label="Color" />
+          </label>
+          <div class="opt swatches" data-for="highlight" role="radiogroup" aria-label="Highlight color">
+            <button class="swatch" data-color="#FFFF98" style="--c:#FFFF98" title="Yellow" aria-label="Yellow"></button>
+            <button class="swatch" data-color="#53FFBC" style="--c:#53FFBC" title="Green" aria-label="Green"></button>
+            <button class="swatch" data-color="#80EBFF" style="--c:#80EBFF" title="Blue" aria-label="Blue"></button>
+            <button class="swatch" data-color="#FFCBE6" style="--c:#FFCBE6" title="Pink" aria-label="Pink"></button>
+            <button class="swatch" data-color="#FF4F5F" style="--c:#FF4F5F" title="Red" aria-label="Red"></button>
+          </div>
+          <label class="opt" data-for="text">Size <input type="number" id="optFontSize" min="5" max="100" value="12" /></label>
+          <label class="opt" data-for="ink">Width <input type="range" id="optThickness" min="1" max="20" value="2" /></label>
+          <label class="opt" data-for="ink">Opacity <input type="range" id="optOpacity" min="10" max="100" value="100" /></label>
+          <label class="opt" data-for="highlight">Free width <input type="range" id="optHlThickness" min="8" max="24" value="12" /></label>
+          <button class="opt text-button" data-for="image" id="btnAddImage">Choose image…</button>
+        </div>
+
+        <div class="spacer"></div>
+
+        <div class="group needs-doc">
+          <button id="btnUndo" class="icon" data-icon="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled></button>
+          <button id="btnRedo" class="icon" data-icon="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled></button>
+          <button id="btnFind" class="icon" data-icon="search" title="Find (Ctrl+F)" aria-label="Find"></button>
+          <button id="btnProps" class="icon" data-icon="info" title="Document properties" aria-label="Document properties"></button>
+        </div>
+      </header>
+
+      <div id="findbar" class="findbar" hidden role="search">
+        <input id="findInput" type="search" placeholder="Find in document" aria-label="Find in document" />
+        <button id="findPrev" class="icon" data-icon="up" title="Previous match (Shift+Enter)" aria-label="Previous match"></button>
+        <button id="findNext" class="icon" data-icon="down" title="Next match (Enter)" aria-label="Next match"></button>
+        <label class="check"><input type="checkbox" id="findCase" /> Match case</label>
+        <label class="check"><input type="checkbox" id="findWord" /> Whole words</label>
+        <span id="findStatus" class="muted" aria-live="polite"></span>
+        <button id="findClose" class="icon" data-icon="close" title="Close (Esc)" aria-label="Close find bar"></button>
+      </div>
+
+      <aside id="sidebar" aria-label="Pages">
+        <div class="page-actions" role="toolbar" aria-label="Page actions">
+          <button id="pgRotL" class="icon" data-icon="rotateCcw" title="Rotate left" aria-label="Rotate left"></button>
+          <button id="pgRotR" class="icon" data-icon="rotateCw" title="Rotate right" aria-label="Rotate right"></button>
+          <button id="pgDup" class="icon" data-icon="duplicate" title="Duplicate" aria-label="Duplicate pages"></button>
+          <button id="pgBlank" class="icon" data-icon="blankPage" title="Insert blank page after" aria-label="Insert blank page"></button>
+          <button id="pgInsert" class="icon" data-icon="insertPdf" title="Insert pages from PDF…" aria-label="Insert pages from PDF"></button>
+          <button id="pgExtract" class="icon" data-icon="extract" title="Save selected pages as…" aria-label="Extract pages"></button>
+          <button id="pgDelete" class="icon danger" data-icon="trash" title="Delete (Del)" aria-label="Delete pages"></button>
+        </div>
+        <div id="selectionInfo" class="selection-info muted" aria-live="polite"></div>
+        <div id="thumbs" class="thumbs" role="listbox" aria-label="Pages" aria-multiselectable="true" tabindex="0"></div>
+      </aside>
+
+      <main id="main">
+        <div id="viewerContainer" tabindex="0">
+          <div id="viewer" class="pdfViewer"></div>
+        </div>
+        <section id="empty" class="empty">
+          <div class="empty-card">
+            <span class="empty-logo" data-icon="logo"></span>
+            <h1>Palimpsest</h1>
+            <p class="muted">View, annotate, fill, and rearrange PDFs. Files stay on this device.</p>
+            <button id="btnOpenEmpty" class="primary">Open a PDF</button>
+            <p class="hint muted">or drop a file anywhere · Ctrl+O</p>
+          </div>
+        </section>
+        <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyLabel"></span></div>
+        <div id="dropHint" class="drop-hint" hidden>Drop to open</div>
+      </main>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <dialog id="passwordDialog">
+      <form method="dialog">
+        <h2>Password required</h2>
+        <p id="passwordMsg" class="muted">This PDF is protected. Enter its password to open it.</p>
+        <input id="passwordInput" type="password" autocomplete="off" aria-label="Password" />
+        <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Open</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="propsDialog">
+      <form method="dialog">
+        <h2>Document properties</h2>
+        <div class="props-grid">
+          <label>Title <input id="propTitle" /></label>
+          <label>Author <input id="propAuthor" /></label>
+          <label>Subject <input id="propSubject" /></label>
+          <label>Keywords <input id="propKeywords" placeholder="comma, separated" /></label>
+        </div>
+        <dl id="propsFacts" class="facts"></dl>
+        <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Apply</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="confirmDialog">
+      <form method="dialog">
+        <h2 id="confirmTitle"></h2>
+        <p id="confirmMsg" class="muted"></p>
+        <menu><button value="cancel">Cancel</button><button value="ok" class="primary" id="confirmOk"></button></menu>
+      </form>
+    </dialog>
+
+    <div id="printContainer"></div>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden />
+    <input type="file" id="insertInput" accept="application/pdf,.pdf" multiple hidden />
+    <input type="file" id="imageInput" accept="image/*" hidden />
+  </body>
+</html>
