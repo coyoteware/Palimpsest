@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The page gets no Tauri or plugin APIs. It only calls the shell's own commands (src/main.rs), which check every path against what the user chose.",
+  "windows": ["*"],
+  "permissions": []
+}

@@ -1,9 +1,7 @@
 import { expect, type Page } from "@playwright/test";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { samplePdf } from "../fixtures/sample";
+import { sampleFile } from "../fixtures/pdf";
+
+export { PNG_RED, inspect, sampleFile } from "../fixtures/pdf";
 
 /**
  * Replace the native save picker with an in-memory one so saves can be
@@ -74,40 +72,6 @@ export async function lastSaved(page: Page) {
   return { name, bytes: new Uint8Array(Buffer.from(data, "base64")) };
 }
 
-export async function inspect(bytes: Uint8Array, password?: string) {
-  const doc = await getDocument({ data: bytes.slice(), password, standardFontDataUrl: STANDARD_FONTS }).promise;
-  const pages = [];
-  for (let n = 1; n <= doc.numPages; n++) {
-    const p = await doc.getPage(n);
-    const text = (await p.getTextContent()).items.map((i) => ("str" in i ? i.str : "")).join(" ");
-    const heading = /Page (\d)/.exec(text)?.[0] ?? "";
-    const annotations = (await p.getAnnotations()).map((a) => ({
-      subtype: a.subtype as string,
-      contents: (a.contentsObj?.str ?? a.textContent?.join("\n") ?? "") as string,
-      fieldName: a.fieldName as string | undefined,
-      fieldValue: a.fieldValue as unknown,
-      color: a.color ? `#${[...(a.color as Uint8ClampedArray)].map((c) => c.toString(16).padStart(2, "0")).join("")}` : null,
-      borderWidth: (a.borderStyle?.width ?? null) as number | null,
-    }));
-    pages.push({ rotate: p.rotate, heading, text, annotations });
-  }
-  const meta = (await doc.getMetadata()).info as Record<string, string>;
-  await doc.loadingTask.destroy();
-  return { pages, meta };
-}
-
-// pdf.js wants a trailing "/" (not "\\"), so use forward slashes on Windows too.
-const STANDARD_FONTS = `${join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts").replaceAll("\\", "/")}/`;
-
-let samplePath: string | null = null;
-export async function sampleFile() {
-  if (!samplePath) {
-    samplePath = join(mkdtempSync(join(tmpdir(), "palimpsest-")), "sample.pdf");
-    writeFileSync(samplePath, await samplePdf());
-  }
-  return samplePath;
-}
-
 export async function openSample(page: Page) {
   await page.goto("./");
   await page.setInputFiles("#fileInput", await sampleFile());
@@ -116,10 +80,6 @@ export async function openSample(page: Page) {
   // Wait until the first page has a text layer, i.e. is fully rendered.
   await expect(page.locator('.page[data-page-number="1"] .textLayer span').first()).toBeVisible();
 }
-
-/** A tiny solid-color PNG, base64-encoded. */
-export const PNG_RED =
-  "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAATUlEQVR4nO3PQQkAMAzAwMqpfz0TMxF7HINABFzm7H7dcEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBY9dWR5giA9/HCIAAAAASUVORK5CYII=";
 
 export const thumb = (page: Page, i: number) => page.locator(`.thumb[data-index="${i}"]`);
 export const pageCount = (page: Page) => page.locator("#pageCount");

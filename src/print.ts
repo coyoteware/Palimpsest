@@ -1,6 +1,10 @@
+import { desktop } from "./desktop";
 import { openPdf } from "./pdfjs";
 
 const PRINT_DPI = 150;
+
+/** Removes the pages of a print a non-blocking print dialog may still be reading. */
+let clearPendingPrint: (() => void) | null = null;
 
 /**
  * Print by rasterising each page into <img> elements that only show under
@@ -11,9 +15,18 @@ export async function printPdf(
   password: string | undefined,
   onProgress: (done: number, total: number) => void,
 ) {
+  clearPendingPrint?.();
   const host = document.getElementById("printContainer")!;
   const style = document.createElement("style");
   const urls: string[] = [];
+  const clear = () => {
+    window.removeEventListener("afterprint", clear);
+    host.textContent = "";
+    style.remove();
+    urls.forEach((u) => URL.revokeObjectURL(u));
+    if (clearPendingPrint === clear) clearPendingPrint = null;
+  };
+  let keepPages = false;
   const { doc } = await openPdf(bytes, { password });
   try {
     host.textContent = "";
@@ -44,12 +57,23 @@ export async function printPdf(
       page.cleanup();
       onProgress(n, doc.numPages);
     }
-    window.print();
+    if (desktop?.print) {
+      // The native dialog returns at once and reads the pages while it is open,
+      // so keep them until printing ends (or until the next print, if no
+      // afterprint event comes).
+      keepPages = true;
+      clearPendingPrint = clear;
+      window.addEventListener("afterprint", clear);
+      await desktop.print().catch((e: unknown) => {
+        keepPages = false;
+        throw e;
+      });
+    } else {
+      // window.print() blocks until the dialog closes.
+      window.print();
+    }
   } finally {
     await doc.loadingTask.destroy();
-    // window.print() blocks until the dialog closes, so cleanup is safe here.
-    host.textContent = "";
-    style.remove();
-    urls.forEach((u) => URL.revokeObjectURL(u));
+    if (!keepPages) clear();
   }
 }

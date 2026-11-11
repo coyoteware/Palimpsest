@@ -559,7 +559,28 @@ export class App {
     });
     if (!file) return;
     if (this.#tool !== "image") await this.setTool("image");
+    await this.#editorLayerReady();
     this.#dispatchParam(P.CREATE, { bitmapFile: file });
+  }
+
+  /**
+   * Wait for the current page's editor layer. The first switch into an editing
+   * mode announces the new mode before it creates the layers, and pdf.js drops
+   * an annotation created in between.
+   */
+  async #editorLayerReady() {
+    const pageNumber = this.page;
+    if (this.viewer.getPageView(pageNumber - 1)?.annotationEditorLayer?.annotationEditorLayer) return;
+    const ac = new AbortController();
+    await new Promise<void>((resolve) => {
+      this.eventBus.on(
+        "annotationeditorlayerrendered",
+        (e: { pageNumber: number }) => e.pageNumber === pageNumber && resolve(),
+        { signal: ac.signal },
+      );
+      setTimeout(resolve, 4000);
+    });
+    ac.abort();
   }
 
   #dispatchParam(type: number, value: unknown) {

@@ -1,0 +1,32 @@
+[package]
+name = "palimpsest"
+version = "0.1.0"
+description = "Palimpsest desktop shell (Tauri)"
+license = "MIT"
+repository = "https://github.com/coyoteware/Palimpsest"
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+percent-encoding = "2"
+serde = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+
+[features]
+# Test hooks used by tests/tauri: scripted dialogs and a log of side effects.
+# Never enable in a build you ship.
+e2e = ["dep:serde", "dep:serde_json"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

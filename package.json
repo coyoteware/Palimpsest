@@ -21,7 +21,8 @@
     "pdf-editor",
     "pwa",
     "chromium",
-    "pdf.js"
+    "pdf.js",
+    "tauri"
   ],
   "scripts": {
     "predev": "node scripts/copy-pdfjs-assets.mjs",
@@ -37,10 +38,14 @@
     "desktop": "npm run build && electron .",
     "dist:win": "npm run build && electron-builder --win portable --publish never",
     "dist:linux": "npm run build && electron-builder --linux dir --publish never",
-    "test:desktop": "playwright test -c playwright.desktop.config.ts --trace off"
+    "test:desktop": "playwright test -c playwright.desktop.config.ts --trace off",
+    "tauri": "tauri",
+    "dist:tauri": "tauri build --no-bundle",
+    "test:tauri": "tauri build --debug --no-bundle --features e2e && vitest run -c vitest.tauri.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@tauri-apps/cli": "2.12.4",
     "@types/node": "^26.6.6",
     "electron": "45.3.0",
     "electron-builder": "26.18.1",

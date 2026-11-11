@@ -50,6 +50,18 @@ This builds the app if needed, serves it on `127.0.0.1:4317`, and opens it in a 
 npm run desktop
 ```
 
+**As the lightweight desktop (Tauri) app** (in testing): the same app in the operating system's own webview (WebView2 on Windows, WebKit on macOS and Linux) instead of a bundled Chromium, so the build is a single file of about 6–8 MB. It needs a [Rust toolchain](https://rustup.rs/) and, on Linux, the WebKitGTK 4.1 development packages (Debian/Ubuntu: `libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev`). Windows 11 has WebView2 built in; on Windows 10 it is usually present, or install the [Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+
+```bash
+npm run tauri dev
+```
+
+```bash
+npm run dist:tauri
+```
+
+The first runs the app against the Vite dev server with hot reload. The second writes `src-tauri/target/release/palimpsest` (`palimpsest.exe` on Windows), which runs without installing. `npm run tauri build` makes installers instead.
+
 **For development:**
 
 ```bash
@@ -96,8 +108,9 @@ The [Release workflow](.github/workflows/release.yml) builds the exe on a Window
 | File access | File System Access API with `<input type=file>` and download fallbacks; `launchQueue` for OS file handling |
 | Offline | A small service worker (`public/sw.js`) |
 | Desktop / portable exe | [Electron](https://www.electronjs.org/) shell (`desktop/`) serving `dist/` from a private `app://` origin with a strict CSP; native open/save dialogs through a sandboxed preload bridge; packaged by [electron-builder](https://www.electron.build/) |
+| Lightweight desktop build | [Tauri](https://tauri.app/) shell (`src-tauri/`) with the same contract: `dist/` embedded and served from the app's own origin with the same CSP, no Tauri APIs granted to the page, and the same `window.palimpsestDesktop` bridge backed by Rust commands |
 
-In the desktop build the page can only write to files the user picked in a dialog or passed on the command line. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
+In both desktop builds the page can only read and write files the user picked in a dialog or passed on the command line. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
 
 A page operation first folds pending annotations into the current bytes, transforms them, and reloads the result. Each step keeps a snapshot for undo. Annotation edits between page operations use pdf.js's own undo stack.
 
@@ -106,20 +119,25 @@ src/
   app.ts          UI controller: viewer wiring, tools, page ops, save, undo
   pageops.ts      page plans → pdf.js extractPages(); pdf-lib edits
   thumbnails.ts   page list: lazy thumbnails, selection, drag and drop
-  files.ts        open/save: Electron bridge, File System Access API, or fallbacks
-  desktop.ts      types for the Electron bridge
+  files.ts        open/save: desktop bridge, File System Access API, or fallbacks
+  desktop.ts      types for the desktop bridge (Electron and Tauri)
   history.ts      document-level undo/redo snapshots
   print.ts        rasterised printing
   pdfjs.ts        pdf.js setup (worker, fonts, CMaps, WASM)
 desktop/
   main.mjs        Electron main process: window, app:// protocol, dialogs, file writes
   preload.cjs     the narrow bridge exposed to the page
+src-tauri/
+  src/main.rs     Tauri shell: windows, dialogs, file reads/writes, links, close prompt
+  src/bridge.js   the same bridge as preload.cjs, built on the shell's commands
+  src/e2e.rs      test hooks (scripted dialogs, event log), only in `--features e2e` builds
 scripts/
   launch.mjs      `npm run app`: local server + Chromium app window
 tests/
   unit/           Vitest: page plans and assembly, run against pdf.js in Node
   e2e/            Playwright: the real app in Chromium; saved files are decoded and checked
   desktop/        Playwright + Electron: command-line open, save in place, dialogs, sandboxing
+  tauri/          Vitest + WebDriver: the same checks against the Tauri shell, plus printing
 ```
 
 ## Testing
@@ -133,7 +151,13 @@ npm run build && npm run test:desktop
 
 On Linux without a display, run the desktop tests as `xvfb-run -a npm run test:desktop`. To test a packaged build, set `PALIMPSEST_EXE` to its executable.
 
-The end-to-end tests stub the native file pickers, drive the UI, and parse each saved PDF with pdf.js to check pages, rotation, annotations, form values and metadata. The desktop tests stub Electron's dialogs and check the files written to disk. CI runs everything on every push (`.github/workflows/ci.yml`). The release workflow also runs the desktop tests against the Windows build.
+```bash
+npm run test:tauri
+```
+
+This builds the Tauri shell with its test hooks and drives it through the platform's WebDriver: WebKitWebDriver on Linux (package `webkit2gtk-driver`; use `xvfb-run -a` without a display) or msedgedriver on Windows (set `MSEDGEDRIVER`; its version must match the WebView2 runtime). macOS has no WebDriver for its webview.
+
+The end-to-end tests stub the native file pickers, drive the UI, and parse each saved PDF with pdf.js to check pages, rotation, annotations, form values and metadata. The desktop tests stub Electron's dialogs and check the files written to disk; the Tauri tests script the shell's dialogs the same way. CI runs everything on every push (`.github/workflows/ci.yml`). The release workflow also runs the desktop tests against the Windows build.
 
 ## Known limitations
 
@@ -143,7 +167,9 @@ The end-to-end tests stub the native file pickers, drive the UI, and parse each 
 - Signatures are visual (drawn or image) only. There is no cryptographic signing, and changing a digitally signed PDF flags or invalidates its signatures.
 - The annotation tools are unavailable on pure XFA forms.
 - `pdfjs-dist` is pinned to an exact version because the app uses its viewer and page-assembly APIs.
+- CI tests the Tauri build on Linux and Windows. macOS is untested: printing there goes through the native print sheet, and files opened from Finder are not handled yet (macOS passes them as an event, not on the command line).
+- In the Tauri build on Linux, printing uses the paper size chosen in the print dialog rather than the PDF's page size.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Bundles pdf.js (Apache-2.0) and pdf-lib (MIT). The desktop build also ships Electron and Chromium, and their licence files are packaged with it.
+MIT, see [LICENSE](LICENSE). Bundles pdf.js (Apache-2.0) and pdf-lib (MIT). The Electron build also ships Electron and Chromium, and their licence files are packaged with it. The Tauri build uses the system webview and ships none.
