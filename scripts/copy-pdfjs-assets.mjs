@@ -1,6 +1,6 @@
 // Copies the runtime assets pdf.js loads on demand (CMaps, standard fonts,
-// WASM decoders, ICC profiles, annotation icons) into public/pdfjs so they are
-// served next to the app and cached by the service worker.
+// WASM decoders, ICC profiles, annotation icons) into public/pdfjs, so they
+// ship inside the app next to the bundle.
 import { cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

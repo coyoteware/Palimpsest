@@ -20,7 +20,7 @@ serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 
 [features]
-# Test hooks used by tests/tauri: scripted dialogs and a log of side effects.
+# Test hooks used by tests/e2e: scripted dialogs and a log of side effects.
 # Never enable in a build you ship.
 e2e = ["dep:serde", "dep:serde_json"]
 

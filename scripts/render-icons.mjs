@@ -1,25 +1,24 @@
-// Regenerates the PNG app icons from public/icons/icon.svg (run after editing the SVG).
-import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
+// Regenerates the app icons in src-tauri/icons from src-tauri/icons/icon.svg
+// (run `npm run icons` after editing the SVG).
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "icons");
-const svg = readFileSync(join(dir, "icon.svg"), "utf8");
-const browser = await chromium.launch();
-const page = await browser.newPage({ deviceScaleFactor: 1 });
-for (const [file, size, maskable] of [
-  ["icon-192.png", 192, false],
-  ["icon-512.png", 512, false],
-  ["icon-maskable-512.png", 512, true],
-]) {
-  // Maskable icons need the artwork inside the central 80% safe zone on a full-bleed background.
-  const inner = maskable
-    ? `<div style="width:${size}px;height:${size}px;background:#2f5bd3;display:grid;place-items:center"><div style="width:${size * 0.8}px;height:${size * 0.8}px">${svg.replace('rx="112"', 'rx="0"')}</div></div>`
-    : `<div style="width:${size}px;height:${size}px">${svg}</div>`;
-  await page.setViewportSize({ width: size, height: size });
-  await page.setContent(`<style>html,body{margin:0;background:transparent}svg{width:100%;height:100%;display:block}</style>${inner}`);
-  await page.screenshot({ path: join(dir, file), omitBackground: true });
+const icons = join(dirname(fileURLToPath(import.meta.url)), "..", "src-tauri", "icons");
+const out = mkdtempSync(join(tmpdir(), "palimpsest-icons-"));
+try {
+  const r = spawnSync("npx", ["tauri", "icon", join(icons, "icon.svg"), "-o", out], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (r.status !== 0) process.exit(r.status ?? 1);
+  // `tauri icon` also writes mobile and Windows Store sizes; keep the desktop set tauri.conf.json uses.
+  for (const file of ["32x32.png", "128x128.png", "128x128@2x.png", "icon.icns", "icon.ico", "icon.png"]) {
+    copyFileSync(join(out, file), join(icons, file));
+  }
+  console.log("icons written to src-tauri/icons");
+} finally {
+  rmSync(out, { recursive: true, force: true });
 }
-await browser.close();
-console.log("icons written");

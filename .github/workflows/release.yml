@@ -1,8 +1,8 @@
 name: Release
 
 # Push a tag like v0.2.0 (matching package.json "version") to build the
-# Windows portable .exe, smoke-test it, and publish a GitHub release.
-# Run manually (Actions → Release → Run workflow) to get the .exe as a
+# Windows portable exe, test it, and publish a GitHub release.
+# Run manually (Actions → Release → Run workflow) to get the exe as a
 # workflow artifact without publishing anything.
 on:
   push:
@@ -21,6 +21,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
       - run: npm ci
       - name: Tag matches package.json version
         if: github.ref_type == 'tag'
@@ -33,11 +37,23 @@ jobs:
           fi
       - run: npm run typecheck
       - run: npm test
-      - run: npm run dist:win
-      - name: Smoke-test the packaged app
-        run: npm run test:desktop
+      - name: Edge WebDriver matching the WebView2 runtime
+        shell: pwsh
+        run: ./scripts/edgedriver.ps1
+      - name: End-to-end tests (test build)
+        run: npm run test:e2e
+      - name: Release build
+        run: npm run dist
+      - name: Smoke-test the release build
+        run: npx vitest run -c vitest.e2e.config.ts tests/e2e/shell.test.ts -t "command line"
         env:
-          PALIMPSEST_EXE: ${{ github.workspace }}\release\win-unpacked\Palimpsest.exe
+          PALIMPSEST_APP: ${{ github.workspace }}\src-tauri\target\release\palimpsest.exe
+      - name: Name the portable exe
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release
+          cp src-tauri/target/release/palimpsest.exe "release/Palimpsest-${version}-portable.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: Palimpsest-windows-portable

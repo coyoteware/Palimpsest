@@ -1,5 +1,5 @@
 /**
- * Starts the platform's WebDriver for the Tauri tests. The driver launches the
+ * Starts the platform's WebDriver for the end-to-end tests. The driver launches the
  * app per session; the environment it passes on enables automation in the
  * webview and points the app's test hooks (src-tauri/src/e2e.rs) at a
  * scratch folder the tests share with it.
@@ -44,8 +44,8 @@ async function waitUntilReady(url: string, failed: Promise<never>) {
 
 export default async function setup(project: TestProject) {
   const exe = process.platform === "win32" ? "palimpsest.exe" : "palimpsest";
-  const binary = resolve(process.env.PALIMPSEST_TAURI_BIN ?? join(ROOT, "src-tauri", "target", "debug", exe));
-  if (!existsSync(binary)) throw new Error(`No app at ${binary}. \`npm run test:tauri\` builds it.`);
+  const binary = resolve(process.env.PALIMPSEST_APP ?? join(ROOT, "src-tauri", "target", "debug", exe));
+  if (!existsSync(binary)) throw new Error(`No app at ${binary}. \`npm run test:e2e\` builds it.`);
 
   const hooks = mkdtempSync(join(tmpdir(), "palimpsest-tauri-"));
   const command = driverCommand();

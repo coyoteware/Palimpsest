@@ -1,6 +1,6 @@
 // Injected into the page before its own scripts (see main.rs). Exposes
-// window.palimpsestDesktop with the same shape as desktop/preload.cjs, built on
-// the shell's commands. The shell fills in the two placeholders below.
+// window.palimpsestDesktop (typed in src/desktop.ts), built on the shell's
+// commands. The shell fills in the two placeholders below.
 (() => {
   const PLATFORM = "__PLATFORM__";
   const NATIVE_PRINT = __NATIVE_PRINT__;
@@ -60,6 +60,6 @@
     },
   });
 
-  // Like the Electron shell: no browser context menu (Back, Reload, Inspect…).
+  // No browser context menu (Back, Reload, Inspect…): this is an app, not a page.
   window.addEventListener("contextmenu", (e) => e.preventDefault());
 })();

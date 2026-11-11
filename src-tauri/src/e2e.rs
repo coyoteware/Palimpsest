@@ -1,4 +1,4 @@
-//! Test hooks for tests/tauri, compiled only with `--features e2e`.
+//! Test hooks for tests/e2e, compiled only with `--features e2e`.
 //!
 //! When PALIMPSEST_E2E_DIR is set, native dialogs are answered from
 //! `<dir>/answers.json` instead of being shown, and dialogs, external opens,

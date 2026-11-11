@@ -1,6 +1,6 @@
 # Palimpsest
 
-An open source PDF viewer and editor that runs as an installable Chromium app. Everything happens on your device; files are never uploaded.
+An open source PDF viewer and editor for the desktop. It is a small native app built with [Tauri](https://tauri.app/) that uses the operating system's own web engine, so the Windows build is a single file of about 6–8 MB. Everything happens on your device; files are never uploaded.
 
 ![Palimpsest editing a PDF: highlighted text, a drawn ellipse and a text note, with the page list on the left](docs/screenshot.png)
 
@@ -12,77 +12,46 @@ An open source PDF viewer and editor that runs as an installable Chromium app. E
 - **Organise pages**: rotate, delete, duplicate, reorder by dragging, insert blank pages, insert pages from other PDFs (drop them on the page list), save a selection as a new PDF.
 - **Document properties**: edit title, author, subject and keywords.
 - **Undo/redo** across both annotation edits and page operations.
-- **Save in place**: a file opened from disk (or from the OS "Open with" menu once installed) is written back to the same file. Save as and print are also included.
-- **Works offline** once the app has been used, with light and dark themes.
+- **Save in place**: a file opened from disk, from the command line or with "Open with" is written back to the same file. Save as and print are also included.
+- **Works offline**, with light and dark themes.
 
 ## Download (Windows)
 
 Get `Palimpsest-<version>-portable.exe` from [Releases](https://github.com/coyoteware/Palimpsest/releases). It is a single file that needs no installation and no admin rights: run it, or drag a PDF onto it, or use **Open with → Choose another app** on a PDF.
 
+- It uses Microsoft Edge WebView2, which is built into Windows 11. Most Windows 10 PCs have it too; if yours doesn't, install the [WebView2 Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 - The build isn't code-signed yet, so on first run Windows SmartScreen says "Windows protected your PC". Choose **More info → Run anyway**.
-- Each launch unpacks the app to a temporary folder first, so startup takes a few seconds. Settings live in `%APPDATA%\Palimpsest`.
+- Settings live in `%LOCALAPPDATA%\io.github.coyoteware.palimpsest`.
 
 ## Run from source
 
-Requires Node.js 22.13 or later. The browser options below also need a Chromium-based browser (Chrome, Chromium, Edge, Brave).
+Requires Node.js 22.13 or later and a [Rust toolchain](https://rustup.rs/). On Linux, also the WebKitGTK 4.1 development packages (Debian/Ubuntu: `libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev`); see Tauri's [prerequisites](https://tauri.app/start/prerequisites/) for other systems.
 
 ```bash
 npm install
 ```
 
-**As a desktop app window:**
-
 ```bash
 npm run app
 ```
 
-```bash
-npm run app -- path/to/file.pdf
-```
+This runs the app against the Vite dev server with hot reload. The first run compiles the Rust shell, which takes a few minutes.
 
-This builds the app if needed, serves it on `127.0.0.1:4317`, and opens it in a Chromium `--app` window with its own profile. Set `CHROME_PATH` if your browser isn't found.
-
-**Installed as a PWA** (the recommended way): run `npm run build && npm run preview`, open http://localhost:4173 in Chrome or Edge, and choose **Install** in the address bar. You get a standalone window, a launcher icon, and Palimpsest appears under "Open with" for PDF files. Any static host works for `dist/`. Installing needs HTTPS, except on localhost.
-
-**As the desktop (Electron) app:**
+## Building
 
 ```bash
-npm run desktop
+npm run dist
 ```
 
-**As the lightweight desktop (Tauri) app** (in testing): the same app in the operating system's own webview (WebView2 on Windows, WebKit on macOS and Linux) instead of a bundled Chromium, so the build is a single file of about 6–8 MB. It needs a [Rust toolchain](https://rustup.rs/) and, on Linux, the WebKitGTK 4.1 development packages (Debian/Ubuntu: `libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev`). Windows 11 has WebView2 built in; on Windows 10 it is usually present, or install the [Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-
-```bash
-npm run tauri dev
-```
-
-```bash
-npm run dist:tauri
-```
-
-The first runs the app against the Vite dev server with hot reload. The second writes `src-tauri/target/release/palimpsest` (`palimpsest.exe` on Windows), which runs without installing. `npm run tauri build` makes installers instead.
-
-**For development:**
-
-```bash
-npm run dev
-```
-
-## Building the portable .exe
-
-```bash
-npm run dist:win
-```
-
-This writes `release/Palimpsest-<version>-portable.exe`. Run it on Windows. On Linux or macOS the same command needs Wine to stamp the icon and version info into the exe. Without Wine, add `-- -c.win.signAndEditExecutable=false` to get a working exe with Electron's default icon.
+This writes `src-tauri/target/release/palimpsest` (`palimpsest.exe` on Windows), a single executable that runs without installing. `npm run tauri build` makes installers instead (MSI and NSIS on Windows, .deb, .rpm and AppImage on Linux, .app and .dmg on macOS); they register Palimpsest as a PDF viewer.
 
 To publish a release, set `version` in `package.json`, commit, then push a matching tag:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The [Release workflow](.github/workflows/release.yml) builds the exe on a Windows runner, runs the desktop tests against it, and attaches it to a GitHub release. Running the workflow by hand (Actions → Release → Run workflow) builds and tests the exe without publishing; the exe is attached to the run as an artifact.
+The [Release workflow](.github/workflows/release.yml) builds the exe on a Windows runner, runs the end-to-end tests, smoke-tests the release build, and attaches `Palimpsest-<version>-portable.exe` to a GitHub release. Running the workflow by hand (Actions → Release → Run workflow) builds and tests the exe without publishing; the exe is attached to the run as an artifact.
 
 ## Keyboard shortcuts
 
@@ -105,39 +74,31 @@ The [Release workflow](.github/workflows/release.yml) builds the exe on a Window
 | Annotation editing and saving | pdf.js annotation editor; `saveDocument()` appends edits as an incremental update |
 | Reorder, delete, duplicate, insert, extract | pdf.js page assembler (`PDFDocumentProxy.extractPages`), which writes a new file containing only reachable objects, so deleted pages are really gone. It keeps forms, outlines, named destinations, page labels and the structure tree. |
 | Rotation, metadata, blank pages | [pdf-lib](https://github.com/Hopding/pdf-lib) |
-| File access | File System Access API with `<input type=file>` and download fallbacks; `launchQueue` for OS file handling |
-| Offline | A small service worker (`public/sw.js`) |
-| Desktop / portable exe | [Electron](https://www.electronjs.org/) shell (`desktop/`) serving `dist/` from a private `app://` origin with a strict CSP; native open/save dialogs through a sandboxed preload bridge; packaged by [electron-builder](https://www.electron.build/) |
-| Lightweight desktop build | [Tauri](https://tauri.app/) shell (`src-tauri/`) with the same contract: `dist/` embedded and served from the app's own origin with the same CSP, no Tauri APIs granted to the page, and the same `window.palimpsestDesktop` bridge backed by Rust commands |
+| Desktop shell | [Tauri](https://tauri.app/) (`src-tauri/`): the web app in `dist/` is embedded in the binary and served from the app's own origin with a strict CSP. The page gets no Tauri APIs; it reaches files only through a narrow bridge (`window.palimpsestDesktop`) backed by Rust commands and native dialogs. |
+| Web engine | The system webview: WebView2 (Chromium-based Edge) on Windows, WKWebView on macOS, WebKitGTK on Linux |
 
-In both desktop builds the page can only read and write files the user picked in a dialog or passed on the command line. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
+The page can only read and write files the user picked in a dialog or passed on the command line. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
 
-A page operation first folds pending annotations into the current bytes, transforms them, and reloads the result. Each step keeps a snapshot for undo. Annotation edits between page operations use pdf.js's own undo stack.
+A page operation first folds pending annotations and form values into the current bytes, transforms them, and reloads the result. Each step keeps a snapshot for undo. Annotation edits between page operations use pdf.js's own undo stack.
 
 ```
 src/
   app.ts          UI controller: viewer wiring, tools, page ops, save, undo
   pageops.ts      page plans → pdf.js extractPages(); pdf-lib edits
   thumbnails.ts   page list: lazy thumbnails, selection, drag and drop
-  files.ts        open/save: desktop bridge, File System Access API, or fallbacks
-  desktop.ts      types for the desktop bridge (Electron and Tauri)
+  files.ts        open/save through the desktop bridge
+  desktop.ts      types for the desktop bridge
   history.ts      document-level undo/redo snapshots
   print.ts        rasterised printing
   pdfjs.ts        pdf.js setup (worker, fonts, CMaps, WASM)
-desktop/
-  main.mjs        Electron main process: window, app:// protocol, dialogs, file writes
-  preload.cjs     the narrow bridge exposed to the page
 src-tauri/
-  src/main.rs     Tauri shell: windows, dialogs, file reads/writes, links, close prompt
-  src/bridge.js   the same bridge as preload.cjs, built on the shell's commands
+  src/main.rs     the shell: windows, dialogs, file reads/writes, links, close requests
+  src/bridge.js   window.palimpsestDesktop, injected into the page
   src/e2e.rs      test hooks (scripted dialogs, event log), only in `--features e2e` builds
-scripts/
-  launch.mjs      `npm run app`: local server + Chromium app window
+  icons/          app icons, generated from icon.svg by `npm run icons`
 tests/
   unit/           Vitest: page plans and assembly, run against pdf.js in Node
-  e2e/            Playwright: the real app in Chromium; saved files are decoded and checked
-  desktop/        Playwright + Electron: command-line open, save in place, dialogs, sandboxing
-  tauri/          Vitest + WebDriver: the same checks against the Tauri shell, plus printing
+  e2e/            Vitest + WebDriver: the real app; saved files are decoded and checked
 ```
 
 ## Testing
@@ -146,18 +107,11 @@ tests/
 npm run typecheck
 npm test
 npm run test:e2e
-npm run build && npm run test:desktop
 ```
 
-On Linux without a display, run the desktop tests as `xvfb-run -a npm run test:desktop`. To test a packaged build, set `PALIMPSEST_EXE` to its executable.
+`npm run test:e2e` builds the app with its test hooks and drives it through the platform's WebDriver: WebKitWebDriver on Linux (package `webkit2gtk-driver`; without a display, run `xvfb-run -a npm run test:e2e`) or msedgedriver on Windows (set `MSEDGEDRIVER`; its version must match the WebView2 runtime, see `scripts/edgedriver.ps1`). macOS has no WebDriver for its webview. Set `PALIMPSEST_APP` to run the tests against another build; tests that need the hooks then fail, so pick them with `-t`.
 
-```bash
-npm run test:tauri
-```
-
-This builds the Tauri shell with its test hooks and drives it through the platform's WebDriver: WebKitWebDriver on Linux (package `webkit2gtk-driver`; use `xvfb-run -a` without a display) or msedgedriver on Windows (set `MSEDGEDRIVER`; its version must match the WebView2 runtime). macOS has no WebDriver for its webview.
-
-The end-to-end tests stub the native file pickers, drive the UI, and parse each saved PDF with pdf.js to check pages, rotation, annotations, form values and metadata. The desktop tests stub Electron's dialogs and check the files written to disk; the Tauri tests script the shell's dialogs the same way. CI runs everything on every push (`.github/workflows/ci.yml`). The release workflow also runs the desktop tests against the Windows build.
+The end-to-end tests answer the app's file dialogs through the test hooks, drive the UI, and parse each saved PDF with pdf.js to check pages, rotation, annotations, form values and metadata. CI runs them on Linux and Windows on every push (`.github/workflows/ci.yml`); the release workflow runs them again and smoke-tests the release build.
 
 ## Known limitations
 
@@ -167,9 +121,10 @@ The end-to-end tests stub the native file pickers, drive the UI, and parse each 
 - Signatures are visual (drawn or image) only. There is no cryptographic signing, and changing a digitally signed PDF flags or invalidates its signatures.
 - The annotation tools are unavailable on pure XFA forms.
 - `pdfjs-dist` is pinned to an exact version because the app uses its viewer and page-assembly APIs.
-- CI tests the Tauri build on Linux and Windows. macOS is untested: printing there goes through the native print sheet, and files opened from Finder are not handled yet (macOS passes them as an event, not on the command line).
-- In the Tauri build on Linux, printing uses the paper size chosen in the print dialog rather than the PDF's page size.
+- macOS is untested: there is no WebDriver for its webview. Printing there goes through the native print sheet, and files opened from Finder are not handled yet (macOS passes them as an event, not on the command line).
+- On Linux, printing uses the paper size chosen in the print dialog rather than the PDF's page size.
+- Dragging pages in the page list is tested by dispatching the page's drag events; the system's own drag session can't be automated.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Bundles pdf.js (Apache-2.0) and pdf-lib (MIT). The Electron build also ships Electron and Chromium, and their licence files are packaged with it. The Tauri build uses the system webview and ships none.
+MIT, see [LICENSE](LICENSE). Bundles pdf.js (Apache-2.0) and pdf-lib (MIT), and is built with Tauri (MIT/Apache-2.0). It uses the system webview and ships no browser engine.

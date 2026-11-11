@@ -158,7 +158,7 @@ export class App {
     window.addEventListener("beforeunload", (e) => {
       if (!this.dirty) return;
       e.preventDefault();
-      e.returnValue = ""; // older Chromium (and Electron) still look at this
+      e.returnValue = ""; // WebKit still looks at this
     });
     window.addEventListener("resize", () => this.#refit());
     this.#setSidebar(readPref("sidebar") !== "closed");
@@ -250,7 +250,13 @@ export class App {
     this.viewer.setDocument(doc);
     this.linkService.setDocument(doc, null);
     void this.thumbs.setDocument(doc, { current: view.page - 1, selection: opts.selection });
-    if (old) await old.loadingTask.destroy();
+    if (old) {
+      // The viewer may still be fetching the old document's pages; destroying
+      // it under those requests makes pdf.js log errors. getPage() returns the
+      // same cached requests, so wait for them to settle, then let it go.
+      const pages = Array.from({ length: old.numPages }, (_, i) => old.getPage(i + 1));
+      void Promise.allSettled(pages).then(() => old.loadingTask.destroy());
+    }
 
     $("app").classList.remove("no-doc");
     $("pageCount").textContent = `/ ${doc.numPages}`;
@@ -277,7 +283,7 @@ export class App {
   async open() {
     if (this.#busy || !(await this.confirmDiscard())) return;
     try {
-      const [file] = await files.pickPdfs($("fileInput"));
+      const [file] = await files.pickPdfs();
       if (file) await this.openFile(file);
     } catch (e) {
       toast(errorText(e), "error");
@@ -297,11 +303,9 @@ export class App {
         await this.target.write(bytes);
       } else {
         const target = await files.saveAs(this.fileName || "document.pdf", bytes);
-        if (target === undefined) return; // cancelled
-        if (target) {
-          this.target = target;
-          this.fileName = target.name;
-        }
+        if (!target) return; // cancelled
+        this.target = target;
+        this.fileName = target.name;
       }
       this.#docDirty = false;
       this.#annotDirty = false;
@@ -417,7 +421,7 @@ export class App {
   async pickAndInsert() {
     if (!this.doc) return;
     try {
-      const picked = await files.pickPdfs($("insertInput"), true);
+      const picked = await files.pickPdfs(true);
       if (picked.length) await this.#insertDocs(picked, Math.max(...this.thumbs.targets) + 1);
     } catch (e) {
       toast(errorText(e), "error");
@@ -570,7 +574,7 @@ export class App {
   }
 
   async addImage() {
-    const file = await files.pickImage($("imageInput")).catch((e) => {
+    const file = await files.pickImage().catch((e) => {
       toast(errorText(e), "error");
       return null;
     });
@@ -846,14 +850,6 @@ export class App {
     $<HTMLSelectElement>("zoomSelect").addEventListener("change", (e) => {
       const v = (e.target as HTMLSelectElement).value;
       if (v !== "custom") this.viewer.currentScaleValue = v;
-    });
-    $("fileInput").addEventListener("change", async (e) => {
-      // Direct use of the hidden input (e.g. automation, or browsers without the picker API).
-      const input = e.target as HTMLInputElement;
-      const file = input.files?.[0];
-      if (!file || input.dataset.picking || this.#busy) return;
-      input.value = "";
-      if (await this.confirmDiscard()) await this.openFile(await files.fromFile(file));
     });
   }
 

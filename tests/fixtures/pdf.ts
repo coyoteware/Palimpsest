@@ -1,4 +1,4 @@
-// Helpers shared by the Playwright (e2e, desktop) and Vitest (tauri) suites.
+// PDF helpers shared by the test suites.
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,9 +1,6 @@
 node_modules/
 dist/
 public/pdfjs/
-test-results/
-playwright-report/
 *.log
-release/
 src-tauri/target/
 src-tauri/gen/

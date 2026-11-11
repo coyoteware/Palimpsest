@@ -1,78 +1,24 @@
 /**
- * The Tauri shell, driven over WebDriver: the same checks as the Electron
- * tests in tests/desktop, plus printing. Native dialogs are answered and the
- * shell's side effects observed through the test hooks in src-tauri/src/e2e.rs.
+ * The desktop shell (src-tauri): command-line open, native dialogs, saving in
+ * place, what the page may do, links, closing with unsaved changes, printing.
  */
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, inject, test } from "vitest";
-import { PNG_RED, inspect, sampleFile } from "../fixtures/pdf";
-import { Key, Session } from "./webdriver";
+import { expect, test } from "vitest";
+import { PNG_RED } from "../fixtures/pdf";
+import { answer, closed, launch, opened, poll, readPdf, sampleIn, shellLog, useApp, workDir } from "./harness";
+import { Key, type Session } from "./webdriver";
 
-const hooks = inject("hooks");
-let app: Session | null = null;
-
-async function launch(...files: string[]) {
-  app = await Session.start(inject("driver"), inject("binary"), files);
-  return app;
-}
-
-/** Answers for the shell's next file dialogs: the paths to return. */
-function answer(answers: { pdf?: string[]; image?: string; save?: string }) {
-  writeFileSync(join(hooks, "answers.json"), JSON.stringify(answers));
-}
-
-type ShellEvent = { dialog?: string; answer?: unknown; open?: string; print?: string; closed?: string };
-
-/** What the shell did: dialogs, links opened, print requests, windows closed. */
-function shellLog(): ShellEvent[] {
-  const path = join(hooks, "log.jsonl");
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as ShellEvent);
-}
-
-const poll = <T>(fn: () => T | Promise<T>, timeout = 10_000) => expect.poll(fn, { timeout, interval: 100 });
-/** First launch on a cold machine (software GL, empty caches) can take a while. */
-const STARTUP = 30_000;
-
-const workDir = () => mkdtempSync(join(tmpdir(), "palimpsest-tauri-doc-"));
-async function samplePdfIn(dir: string, name = "doc.pdf") {
-  const path = join(dir, name);
-  copyFileSync(await sampleFile(), path);
-  return path;
-}
+useApp();
 
 /** Same as pressing the window's close button. */
-const requestClose = (s: Session) => s.exec("window.__TAURI_INTERNALS__.invoke('request_close')");
-
-/** For tests that close the app themselves: end the session without checking the page. */
-async function closed() {
-  await app?.end();
-  app = null;
-}
-
-beforeEach(() => {
-  answer({});
-  writeFileSync(join(hooks, "log.jsonl"), "");
-});
-
-afterEach(async () => {
-  if (!app) return;
-  const errors = await app.exec<string[]>("return window.__e2eErrors");
-  await app.end();
-  app = null;
-  expect(errors, "errors in the page").toEqual([]);
-});
+const requestClose = (app: Session) => app.exec("window.__TAURI_INTERNALS__.invoke('request_close')");
 
 test("opens a PDF from the command line and saves it in place", async () => {
   const dir = workDir();
-  const path = await samplePdfIn(dir);
+  const path = await sampleIn(dir, "doc.pdf");
   const app = await launch(path);
-  await poll(() => app.text("#pageCount"), STARTUP).toBe("/ 5");
+  await opened(app);
   expect(await app.title()).toMatch(/doc\.pdf — Palimpsest/);
 
   await app.click('.thumb[data-index="1"]');
@@ -81,37 +27,37 @@ test("opens a PDF from the command line and saves it in place", async () => {
   await app.press(Key.Control, "s");
   await poll(() => app.text(".toast")).toContain("Saved doc.pdf");
 
-  const doc = await inspect(new Uint8Array(readFileSync(path)));
+  const doc = await readPdf(path);
   expect(doc.pages.map((p) => p.heading)).toEqual(["Page 1", "Page 3", "Page 4", "Page 5"]);
   expect(readdirSync(dir)).toEqual(["doc.pdf"]); // no temp files left behind
 });
 
 test("open, image and save-as go through native dialogs", async () => {
   const dir = workDir();
-  const source = await samplePdfIn(dir, "source.pdf");
+  const source = await sampleIn(dir, "source.pdf");
   const png = join(dir, "stamp.png");
   writeFileSync(png, Buffer.from(PNG_RED, "base64"));
   answer({ pdf: [source], image: png, save: join(dir, "copy") });
   const app = await launch();
 
   await app.click("#btnOpenEmpty");
-  await poll(() => app.text("#pageCount"), STARTUP).toBe("/ 5");
+  await opened(app);
   await app.click('.toolbar .tool[data-tool="image"]');
   await poll(() => app.count(".stampEditor")).toBe(1);
   await app.click('.toolbar .tool[data-tool="none"]');
 
   await app.press(Key.Control, Key.Shift, "s");
   await poll(() => app.text("#docTitle")).toContain("copy.pdf"); // extension added
-  const saved = await inspect(new Uint8Array(readFileSync(join(dir, "copy.pdf"))));
+  const saved = await readPdf(join(dir, "copy.pdf"));
   expect(saved.pages[0].annotations.map((a) => a.subtype)).toContain("Stamp");
   // The original is untouched.
-  const original = await inspect(new Uint8Array(readFileSync(source)));
+  const original = await readPdf(source);
   expect(original.pages[0].annotations.some((a) => a.subtype === "Stamp")).toBe(false);
-  expect(shellLog().map((e) => e.dialog)).toEqual(["pdf", "image", "save"]);
+  expect(shellLog().flatMap((e) => e.dialog ?? [])).toEqual(["pdf", "image", "save"]);
 });
 
 test("the page gets no Tauri APIs and can only touch files the user chose", async () => {
-  const notChosen = await samplePdfIn(workDir(), "not-chosen.pdf");
+  const notChosen = await sampleIn(workDir(), "not-chosen.pdf");
   const target = join(workDir(), "new.pdf");
   const app = await launch();
 
@@ -173,8 +119,8 @@ test("links open in the default browser, never inside the app", async () => {
 });
 
 test("asks before discarding unsaved changes on close", async () => {
-  const app = await launch(await samplePdfIn(workDir()));
-  await poll(() => app.text("#pageCount"), STARTUP).toBe("/ 5");
+  const app = await launch(await sampleIn(workDir()));
+  await opened(app);
   await app.click('.thumb[data-index="1"]');
   await app.click("#pgDelete");
   await poll(() => app.text("#pageCount")).toBe("/ 4");
@@ -200,16 +146,16 @@ test("asks before discarding unsaved changes on close", async () => {
 });
 
 test("closes without asking when there are no unsaved changes", async () => {
-  const app = await launch(await samplePdfIn(workDir()));
-  await poll(() => app.text("#pageCount"), STARTUP).toBe("/ 5");
+  const app = await launch(await sampleIn(workDir()));
+  await opened(app);
   await requestClose(app);
   await poll(() => shellLog().some((e) => e.closed)).toBe(true);
   await closed();
 });
 
 test("a print the shell hands to the native dialog keeps its pages until printing ends", async () => {
-  const app = await launch(await samplePdfIn(workDir()));
-  await poll(() => app.text("#pageCount"), STARTUP).toBe("/ 5");
+  const app = await launch(await sampleIn(workDir()));
+  await opened(app);
 
   await app.click("#btnPrint");
   await poll(() => shellLog().filter((e) => e.print).length).toBe(1);

@@ -1,7 +1,7 @@
 {
   "name": "palimpsest",
   "version": "0.1.0",
-  "description": "Open source PDF viewer and editor that runs as an installable Chromium app.",
+  "description": "Open source PDF viewer and editor: a small desktop app built with Tauri.",
   "license": "MIT",
   "author": "Coyoteware",
   "homepage": "https://github.com/coyoteware/Palimpsest",
@@ -11,7 +11,6 @@
   },
   "private": true,
   "type": "module",
-  "main": "desktop/main.mjs",
   "engines": {
     "node": ">=22.13"
   },
@@ -19,36 +18,26 @@
     "pdf",
     "pdf-viewer",
     "pdf-editor",
-    "pwa",
-    "chromium",
     "pdf.js",
-    "tauri"
+    "tauri",
+    "desktop"
   ],
   "scripts": {
+    "app": "tauri dev",
     "predev": "node scripts/copy-pdfjs-assets.mjs",
     "dev": "vite",
     "prebuild": "node scripts/copy-pdfjs-assets.mjs",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test --trace off",
-    "app": "node scripts/launch.mjs",
+    "test:e2e": "tauri build --debug --no-bundle --features e2e && vitest run -c vitest.e2e.config.ts",
+    "dist": "tauri build --no-bundle",
     "icons": "node scripts/render-icons.mjs",
-    "desktop": "npm run build && electron .",
-    "dist:win": "npm run build && electron-builder --win portable --publish never",
-    "dist:linux": "npm run build && electron-builder --linux dir --publish never",
-    "test:desktop": "playwright test -c playwright.desktop.config.ts --trace off",
-    "tauri": "tauri",
-    "dist:tauri": "tauri build --no-bundle",
-    "test:tauri": "tauri build --debug --no-bundle --features e2e && vitest run -c vitest.tauri.config.ts"
+    "tauri": "tauri"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "2.12.4",
     "@types/node": "^26.6.6",
-    "electron": "45.3.0",
-    "electron-builder": "26.18.1",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.5.438",
     "typescript": "^7.0.2",

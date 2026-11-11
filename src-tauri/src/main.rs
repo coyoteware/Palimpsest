@@ -1,12 +1,12 @@
-//! Desktop shell (Tauri) for Palimpsest, the counterpart of desktop/main.mjs.
+//! Palimpsest's desktop shell.
 //!
 //! The web app in dist/ is embedded in the binary and served from the app's
 //! own origin with a strict CSP (tauri.conf.json). The page gets no Tauri or
 //! plugin APIs (capabilities/default.json): it reaches files only through the
-//! commands below, wrapped as window.palimpsestDesktop by bridge.js. As in the
-//! Electron shell, a window may only read and write files the user picked in a
-//! dialog or passed on the command line, and a save goes to a temporary file
-//! beside the target that is then renamed over it.
+//! commands below, wrapped as window.palimpsestDesktop by bridge.js. A window
+//! may only read and write files the user picked in a dialog or passed on the
+//! command line, and a save goes to a temporary file beside the target that is
+//! then renamed over it, so a failed save never truncates the original.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[cfg(feature = "e2e")]
@@ -142,6 +142,8 @@ async fn save_as(window: Window, shell: State<'_, Shell>, suggested_name: String
     let name = Path::new(&suggested_name)
         .file_name()
         .map_or_else(|| "document.pdf".into(), |n| n.to_string_lossy().into_owned());
+    #[cfg(feature = "e2e")]
+    e2e::log(serde_json::json!({ "suggestedName": &name }));
     let chosen = scripted::<PathBuf>("save").unwrap_or_else(|| {
         file_dialog(&window, &shell)
             .set_file_name(name)
@@ -222,7 +224,7 @@ fn print_page(webview: Webview) -> Result<(), String> {
 
 /// The page's bridge script with this platform's values filled in.
 fn bridge_script() -> String {
-    // Node's names, as desktop/preload.cjs reports them.
+    // Node's names (process.platform).
     let platform = match std::env::consts::OS {
         "windows" => "win32",
         "macos" => "darwin",
