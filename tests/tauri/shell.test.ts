@@ -18,8 +18,8 @@ async function launch(...files: string[]) {
   return app;
 }
 
-/** Answers for the shell's next dialogs: file paths, and whether to discard unsaved changes. */
-function answer(answers: { pdf?: string[]; image?: string; save?: string; discard?: boolean }) {
+/** Answers for the shell's next file dialogs: the paths to return. */
+function answer(answers: { pdf?: string[]; image?: string; save?: string }) {
   writeFileSync(join(hooks, "answers.json"), JSON.stringify(answers));
 }
 
@@ -126,7 +126,7 @@ test("the page gets no Tauri APIs and can only touch files the user chose", asyn
     process: "undefined",
     tauri: "undefined",
     // Release builds have `print` on macOS only; test builds route printing through the shell everywhere.
-    bridge: ["initialFile", "openImage", "openPdfs", "platform", "print", "saveAs", "write"],
+    bridge: ["initialFile", "onCloseRequested", "openImage", "openPdfs", "platform", "print", "saveAs", "write"],
   });
 
   /** Runs an async function in the page and reports "ok" or its error. */
@@ -179,16 +179,23 @@ test("asks before discarding unsaved changes on close", async () => {
   await app.click("#pgDelete");
   await poll(() => app.text("#pageCount")).toBe("/ 4");
 
-  answer({ discard: false }); // Cancel keeps the window
+  const dialogOpen = () => app.exec<boolean>("return document.querySelector('#confirmDialog').open");
   await requestClose(app);
-  await poll(() => shellLog()).toContainEqual({ dialog: "discard", answer: false });
+  await poll(dialogOpen).toBe(true);
+  // Focus starts on Cancel, so Enter keeps the changes.
+  expect(await app.exec("return document.activeElement?.value")).toBe("cancel");
+  // Pressing close again while the user decides does not force the window shut.
+  await requestClose(app);
+  await app.click('#confirmDialog button[value="cancel"]');
+  await poll(dialogOpen).toBe(false);
   expect(await app.text("#pageCount")).toBe("/ 4");
   expect(shellLog().some((e) => e.closed)).toBe(false);
 
-  answer({ discard: true }); // Discard lets it close
   await requestClose(app);
+  await poll(dialogOpen).toBe(true);
+  // Discard. Clicked from the page so the app can quit without cutting off the driver's reply.
+  await app.exec("setTimeout(() => document.querySelector('#confirmOk').click(), 50)");
   await poll(() => shellLog().some((e) => e.closed)).toBe(true);
-  expect(shellLog().filter((e) => e.dialog)).toHaveLength(2);
   await closed();
 });
 
@@ -197,7 +204,6 @@ test("closes without asking when there are no unsaved changes", async () => {
   await poll(() => app.text("#pageCount"), STARTUP).toBe("/ 5");
   await requestClose(app);
   await poll(() => shellLog().some((e) => e.closed)).toBe(true);
-  expect(shellLog().filter((e) => e.dialog)).toEqual([]);
   await closed();
 });
 

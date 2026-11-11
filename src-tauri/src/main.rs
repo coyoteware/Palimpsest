@@ -22,7 +22,7 @@ use percent_encoding::percent_decode_str;
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, State, Url, Webview, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent, Wry};
-use tauri_plugin_dialog::{DialogExt, FileDialogBuilder, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 use tauri_plugin_opener::OpenerExt;
 
 #[cfg(feature = "e2e")]
@@ -40,13 +40,13 @@ const CLOSE_ANSWER_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Run in the page when its window's close button is pressed (see bridge.js).
 const ASK_PAGE_TO_CLOSE: &str = "(window.__palimpsestCloseRequested ?? \
-    (() => window.__TAURI_INTERNALS__.invoke('close_window', { dirty: false })))()";
+    (() => window.__TAURI_INTERNALS__.invoke('close_window', { decision: 'close' })))()";
 
 enum Closing {
-    /// The page was asked whether it has unsaved changes.
+    /// The page was asked whether the window may close.
     Asked(Instant),
-    /// The "Discard unsaved changes?" dialog is open.
-    Prompting,
+    /// The page is asking the user (its "Discard unsaved changes?" dialog is open).
+    Asking,
 }
 
 #[derive(Default)]
@@ -185,32 +185,26 @@ async fn write_file(window: Window, shell: State<'_, Shell>, request: Request<'_
     })
 }
 
-/// The page's answer to a close request: close, after asking if it has unsaved changes.
+/// The page's answer to a close request (bridge.js): "asking" while it asks
+/// the user about unsaved changes, then "close" or "stay".
 #[tauri::command]
-async fn close_window(window: Window, shell: State<'_, Shell>, dirty: bool) -> Result<(), String> {
-    if dirty {
-        shell.closing.lock().unwrap().insert(window.label().to_owned(), Closing::Prompting);
-        let discard = confirm_discard(&window);
-        shell.closing.lock().unwrap().remove(window.label());
-        if !discard {
-            return Ok(());
+fn close_window(window: Window, shell: State<Shell>, decision: String) -> Result<(), String> {
+    let mut closing = shell.closing.lock().unwrap();
+    match decision.as_str() {
+        "asking" => {
+            closing.insert(window.label().to_owned(), Closing::Asking);
+            Ok(())
         }
+        "stay" => {
+            closing.remove(window.label());
+            Ok(())
+        }
+        "close" => {
+            drop(closing);
+            window.destroy().map_err(|e| e.to_string())
+        }
+        other => Err(format!("Unknown close decision: {other}")),
     }
-    window.destroy().map_err(|e| e.to_string())
-}
-
-fn confirm_discard(window: &Window) -> bool {
-    if let Some(answer) = scripted::<bool>("discard") {
-        return answer.unwrap_or(false);
-    }
-    window
-        .dialog()
-        .message("Your changes to this document have not been saved.")
-        .title("Discard unsaved changes?")
-        .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom("Discard changes".into(), "Cancel".into()))
-        .parent(window)
-        .blocking_show()
 }
 
 /// Native print dialog. Only the macOS bridge uses it: WKWebView ignores

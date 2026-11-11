@@ -41,6 +41,9 @@ if (fileParam) {
   }
 }
 
+// Desktop build: ask before closing a window with unsaved changes.
+desktop?.onCloseRequested?.(() => app.confirmDiscard());
+
 // Desktop build: a file passed on the command line or via "Open with".
 desktop
   ?.initialFile()

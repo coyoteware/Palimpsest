@@ -20,6 +20,12 @@ export interface DesktopBridge {
    * work (Tauri on macOS). It returns before printing ends.
    */
   print?(): Promise<void>;
+  /**
+   * Called when the window's close button is pressed (Tauri). The window
+   * closes if `guard` resolves true. The Electron shell asks through
+   * beforeunload instead.
+   */
+  onCloseRequested?(guard: () => Promise<boolean>): void;
 }
 
 export const desktop: DesktopBridge | null =

@@ -36,15 +36,27 @@
   // WKWebView has no window.print(); the shell opens the native print sheet,
   // which returns before printing ends (see src/print.ts).
   if (NATIVE_PRINT) bridge.print = () => invoke("print_page");
+
+  // The app's answer to "may this window close?" (src/main.ts registers it).
+  let closeGuard = null;
+  bridge.onCloseRequested = (guard) => {
+    closeGuard = guard;
+  };
   Object.defineProperty(window, "palimpsestDesktop", { value: Object.freeze(bridge) });
 
-  // Called by the shell when the window's close button is pressed. The page
-  // cancels beforeunload while it has unsaved changes; a synthetic event asks it.
+  // Called by the shell when the window's close button is pressed. "asking"
+  // tells it the page is handling the request (so a second click waits for
+  // the answer); then "close" or "stay".
   Object.defineProperty(window, "__palimpsestCloseRequested", {
-    value() {
-      const probe = new Event("beforeunload", { cancelable: true });
-      window.dispatchEvent(probe);
-      return invoke("close_window", { dirty: probe.defaultPrevented });
+    async value() {
+      if (!closeGuard) return invoke("close_window", { decision: "close" });
+      await invoke("close_window", { decision: "asking" });
+      let close = false;
+      try {
+        close = await closeGuard();
+      } finally {
+        await invoke("close_window", { decision: close ? "close" : "stay" });
+      }
     },
   });
 
