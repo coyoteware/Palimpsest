@@ -96,7 +96,8 @@ export async function inspect(bytes: Uint8Array, password?: string) {
   return { pages, meta };
 }
 
-const STANDARD_FONTS = join(process.cwd(), "node_modules/pdfjs-dist/standard_fonts/");
+// pdf.js wants a trailing "/" (not "\\"), so use forward slashes on Windows too.
+const STANDARD_FONTS = `${join(process.cwd(), "node_modules", "pdfjs-dist", "standard_fonts").replaceAll("\\", "/")}/`;
 
 let samplePath: string | null = null;
 export async function sampleFile() {

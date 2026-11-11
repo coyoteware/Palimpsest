@@ -33,6 +33,9 @@ test.afterEach(async () => {
   await app?.close().catch(() => {});
 });
 
+/** First launch on a cold CI machine (software GL, no code cache) can take several seconds. */
+const STARTUP = { timeout: 30_000 };
+
 const workDir = () => mkdtempSync(join(tmpdir(), "palimpsest-desktop-"));
 async function samplePdfIn(dir: string, name = "doc.pdf") {
   const path = join(dir, name);
@@ -44,7 +47,7 @@ test("opens a PDF from the command line and saves it in place", async () => {
   const dir = workDir();
   const path = await samplePdfIn(dir);
   await launch(path);
-  await expect(page.locator("#pageCount")).toHaveText("/ 5");
+  await expect(page.locator("#pageCount")).toHaveText("/ 5", STARTUP);
   await expect(page).toHaveTitle(/doc\.pdf — Palimpsest/);
 
   await page.locator('.thumb[data-index="1"]').click();
@@ -73,7 +76,7 @@ test("open, image and save-as go through native dialogs", async () => {
   }, { source, png, out: join(dir, "copy") });
 
   await page.locator("#btnOpenEmpty").click();
-  await expect(page.locator("#pageCount")).toHaveText("/ 5");
+  await expect(page.locator("#pageCount")).toHaveText("/ 5", STARTUP);
   await page.locator('.toolbar .tool[data-tool="image"]').click();
   await expect(page.locator(".stampEditor")).toHaveCount(1);
   await page.locator('.toolbar .tool[data-tool="none"]').click();
