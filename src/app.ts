@@ -218,6 +218,14 @@ export class App {
       return false;
     }
     const old = this.doc;
+    if (old) {
+      // The viewer fills its page slots from getPage() requests that may still
+      // be in flight; if they land after it switches documents, pdf.js throws.
+      // getPage() returns those same cached requests, so let them settle (and
+      // their callbacks run) first.
+      await Promise.allSettled(Array.from({ length: old.numPages }, (_, i) => old.getPage(i + 1)));
+      await new Promise((resolve) => setTimeout(resolve));
+    }
     const doc = (this.doc = opened.doc);
     this.#password = opened.password;
     if (opts.fresh) {
@@ -250,13 +258,7 @@ export class App {
     this.viewer.setDocument(doc);
     this.linkService.setDocument(doc, null);
     void this.thumbs.setDocument(doc, { current: view.page - 1, selection: opts.selection });
-    if (old) {
-      // The viewer may still be fetching the old document's pages; destroying
-      // it under those requests makes pdf.js log errors. getPage() returns the
-      // same cached requests, so wait for them to settle, then let it go.
-      const pages = Array.from({ length: old.numPages }, (_, i) => old.getPage(i + 1));
-      void Promise.allSettled(pages).then(() => old.loadingTask.destroy());
-    }
+    if (old) await old.loadingTask.destroy();
 
     $("app").classList.remove("no-doc");
     $("pageCount").textContent = `/ ${doc.numPages}`;

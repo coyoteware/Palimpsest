@@ -73,9 +73,21 @@ jobs:
         shell: pwsh
         run: ./scripts/windows-unelevated.ps1 npx vitest run -c vitest.e2e.config.ts
       - name: Portable exe
-        run: npm run dist
+        shell: bash
+        run: |
+          npm run dist
+          mkdir -p release
+          cp src-tauri/target/release/palimpsest.exe release/Palimpsest-portable.exe
+      - name: Installer
+        shell: bash
+        run: |
+          npm run dist:installer
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe release/Palimpsest-setup.exe
+      - name: Test the installer (install, Open with, uninstall)
+        shell: pwsh
+        run: ./scripts/test-installer.ps1 -Installer release/Palimpsest-setup.exe
       - uses: actions/upload-artifact@v4
         with:
           name: Palimpsest-windows
-          path: src-tauri/target/release/palimpsest.exe
+          path: release/*.exe
           if-no-files-found: error

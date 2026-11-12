@@ -17,11 +17,16 @@ An open source PDF viewer and editor for the desktop. It is a small native app b
 
 ## Download (Windows)
 
-Get `Palimpsest-<version>-portable.exe` from [Releases](https://github.com/coyoteware/Palimpsest/releases). It is a single file that needs no installation and no admin rights: run it, or drag a PDF onto it, or use **Open with → Choose another app** on a PDF.
+From [Releases](https://github.com/coyoteware/Palimpsest/releases), get either:
 
-- It uses Microsoft Edge WebView2, which is built into Windows 11. Most Windows 10 PCs have it too; if yours doesn't, install the [WebView2 Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-- The build isn't code-signed yet, so on first run Windows SmartScreen says "Windows protected your PC". Choose **More info → Run anyway**.
-- Settings live in `%LOCALAPPDATA%\io.github.coyoteware.palimpsest`.
+- **`Palimpsest-<version>-setup.exe`**, the installer. It installs for your account only, so it needs no admin rights, and adds Palimpsest to the Start menu and to the **Open with** menu for PDFs. PDFs also get an **Open with Palimpsest** command when you right-click them (on Windows 11, under **Show more options**). It doesn't change your default PDF app; to make Palimpsest the default, pick it in **Settings → Apps → Default apps**. Uninstall it from **Settings → Apps**, which removes all of this again.
+- **`Palimpsest-<version>-portable.exe`**, a single file that needs no installation: run it, drag a PDF onto it, or use **Open with → Choose another app** on a PDF.
+
+Both:
+
+- use Microsoft Edge WebView2, which is built into Windows 11. Most Windows 10 PCs have it too; if yours doesn't, the installer downloads it, and for the portable exe install the [WebView2 Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+- aren't code-signed yet, so on first run Windows SmartScreen says "Windows protected your PC". Choose **More info → Run anyway**.
+- keep settings in `%LOCALAPPDATA%\io.github.coyoteware.palimpsest`.
 
 ## Run from source
 
@@ -43,7 +48,13 @@ This runs the app against the Vite dev server with hot reload. The first run com
 npm run dist
 ```
 
-This writes `src-tauri/target/release/palimpsest` (`palimpsest.exe` on Windows), a single executable that runs without installing. `npm run tauri build` makes installers instead (MSI and NSIS on Windows, .deb, .rpm and AppImage on Linux, .app and .dmg on macOS); they register Palimpsest as a PDF viewer.
+This writes `src-tauri/target/release/palimpsest` (`palimpsest.exe` on Windows), a single executable that runs without installing.
+
+```bash
+npm run dist:installer
+```
+
+On Windows this writes the installer to `src-tauri/target/release/bundle/nsis/`. What it registers for PDFs is in `src-tauri/windows/installer-hooks.nsh`, and `scripts/test-installer.ps1` checks it on a CI runner: it installs silently, checks the registry, opens a PDF through **Open with Palimpsest**, and uninstalls. On Linux and macOS, `npm run tauri build` makes the native packages instead (.deb, .rpm and AppImage; .app and .dmg), which declare Palimpsest as a PDF viewer.
 
 To publish a release, set `version` in `package.json`, commit, then push a matching tag:
 
@@ -51,7 +62,7 @@ To publish a release, set `version` in `package.json`, commit, then push a match
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The [Release workflow](.github/workflows/release.yml) builds the exe on a Windows runner, runs the end-to-end tests, smoke-tests the release build, and attaches `Palimpsest-<version>-portable.exe` to a GitHub release. Running the workflow by hand (Actions → Release → Run workflow) builds and tests the exe without publishing; the exe is attached to the run as an artifact.
+The [Release workflow](.github/workflows/release.yml) runs on a Windows runner. It runs the end-to-end tests, builds and smoke-tests the portable exe, builds and tests the installer, and attaches `Palimpsest-<version>-portable.exe` and `Palimpsest-<version>-setup.exe` to a GitHub release. Running the workflow by hand (Actions → Release → Run workflow) builds and tests both without publishing them; they are attached to the run as an artifact.
 
 ## Keyboard shortcuts
 
@@ -95,6 +106,7 @@ src-tauri/
   src/main.rs     the shell: windows, dialogs, file reads/writes, links, close requests
   src/bridge.js   window.palimpsestDesktop, injected into the page
   src/e2e.rs      test hooks (scripted dialogs, event log), only in `--features e2e` builds
+  windows/        what the Windows installer registers for PDFs ("Open with")
   icons/          app icons, generated from icon.svg by `npm run icons`
 tests/
   unit/           Vitest: page plans and assembly, run against pdf.js in Node

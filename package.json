@@ -32,6 +32,7 @@
     "test": "vitest run",
     "test:e2e": "tauri build --debug --no-bundle --features e2e && vitest run -c vitest.e2e.config.ts",
     "dist": "tauri build --no-bundle",
+    "dist:installer": "tauri build --bundles nsis",
     "icons": "node scripts/render-icons.mjs",
     "tauri": "tauri"
   },

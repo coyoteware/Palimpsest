@@ -1,9 +1,9 @@
 name: Release
 
 # Push a tag like v0.2.0 (matching package.json "version") to build the
-# Windows portable exe, test it, and publish a GitHub release.
-# Run manually (Actions → Release → Run workflow) to get the exe as a
-# workflow artifact without publishing anything.
+# Windows portable exe and installer, test them, and publish a GitHub release.
+# Run manually (Actions → Release → Run workflow) to get both as a workflow
+# artifact without publishing anything.
 on:
   push:
     tags: ["v*"]
@@ -54,27 +54,37 @@ jobs:
         run: ./scripts/windows-unelevated.ps1 npx vitest run -c vitest.e2e.config.ts tests/e2e/shell.test.ts -t "command line"
         env:
           PALIMPSEST_APP: ${{ github.workspace }}\src-tauri\target\release\palimpsest.exe
+      # Before the installer build, which stamps the binary as installed by NSIS.
       - name: Name the portable exe
         shell: bash
         run: |
           version="$(node -p "require('./package.json').version")"
           mkdir -p release
           cp src-tauri/target/release/palimpsest.exe "release/Palimpsest-${version}-portable.exe"
+      - name: Installer
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          npm run dist:installer
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe "release/Palimpsest-${version}-setup.exe"
+      - name: Test the installer (install, Open with, uninstall)
+        shell: pwsh
+        run: ./scripts/test-installer.ps1 -Installer (Get-Item release/*-setup.exe).FullName
       - uses: actions/upload-artifact@v4
         with:
-          name: Palimpsest-windows-portable
-          path: release/*-portable.exe
+          name: Palimpsest-windows
+          path: release/*.exe
           if-no-files-found: error
       - name: Publish GitHub release
         if: github.ref_type == 'tag'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        # If the release was already created by hand (e.g. on github.com), attach the tested build to it.
+        # If the release was already created by hand (e.g. on github.com), attach the tested builds to it.
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" release/*-portable.exe --clobber
+            gh release upload "$GITHUB_REF_NAME" release/*.exe --clobber
           else
-            gh release create "$GITHUB_REF_NAME" release/*-portable.exe \
+            gh release create "$GITHUB_REF_NAME" release/*.exe \
               --title "Palimpsest $GITHUB_REF_NAME" --generate-notes
           fi
