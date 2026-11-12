@@ -134,7 +134,7 @@
         <h2>Password required</h2>
         <p id="passwordMsg" class="muted">This PDF is protected. Enter its password to open it.</p>
         <input id="passwordInput" type="password" autocomplete="off" aria-label="Password" />
-        <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Open</button></menu>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary">Open</button></menu>
       </form>
     </dialog>
 
@@ -148,7 +148,7 @@
           <label>Keywords <input id="propKeywords" placeholder="comma, separated" /></label>
         </div>
         <dl id="propsFacts" class="facts"></dl>
-        <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Apply</button></menu>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary">Apply</button></menu>
       </form>
     </dialog>
 
@@ -168,7 +168,7 @@
           </label>
         </div>
         <p id="splitPreview" class="preview muted" aria-live="polite"></p>
-        <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary" id="splitOk">Choose folder…</button></menu>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="splitOk">Choose folder…</button></menu>
       </form>
     </dialog>
 
@@ -178,7 +178,7 @@
         <p class="muted">The files are combined in this order into a new document.</p>
         <ol id="mergeList" class="file-list" aria-label="Files to merge"></ol>
         <button type="button" id="mergeAdd" class="text-button">Add files…</button>
-        <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary" id="mergeOk">Merge</button></menu>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="mergeOk">Merge</button></menu>
       </form>
     </dialog>
 
@@ -186,7 +186,7 @@
       <form method="dialog">
         <h2 id="confirmTitle"></h2>
         <p id="confirmMsg" class="muted"></p>
-        <menu><button value="cancel">Cancel</button><button value="ok" class="primary" id="confirmOk"></button></menu>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="confirmOk"></button></menu>
       </form>
     </dialog>
 

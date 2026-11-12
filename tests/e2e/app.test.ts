@@ -296,9 +296,14 @@ test("asks for the password of a protected PDF being merged", async () => {
   await app.click("#mergeOk");
   await poll(() => isOpen(app, "#passwordDialog")).toBe(true);
   expect(await app.text("#passwordMsg")).toBe("encrypted.pdf is protected. Enter its password.");
+  await app.fill("#passwordInput", "wrong");
+  await app.click("#passwordDialog button.primary");
+  await poll(() => app.text("#passwordMsg")).toBe("That password is not correct for encrypted.pdf. Try again.");
   await app.fill("#passwordInput", "secret");
   await app.click("#passwordDialog button.primary");
   await opened(app, 6);
+  // The merged file has no encryption, and the app says so.
+  await poll(() => app.text(".toast.error")).toContain("not password-protected");
 
   const out = join(dir, "merged.pdf");
   answer({ save: out });

@@ -78,16 +78,21 @@ interface EditorStates {
 }
 
 /** One file in the merge list: a picked file, or the open document as it is now. */
-type MergeEntry = { name: string; file: files.OpenedFile } | { name: string; file: null };
+type MergeEntry = { name: string; file: files.OpenedFile | null };
+
+/** Another PDF, open in pdf.js, to take pages from (an `ops.ExtraDoc`). */
+type Source = { doc: PDFDocumentProxy; data: Uint8Array; password?: string };
 
 interface LoadOptions {
   /** A different file (resets history, save target, password). */
-  fresh?: { name: string; target: files.SaveTarget | null; password?: string };
+  fresh?: { name: string; target: files.SaveTarget | null };
   page?: number;
   selection?: number[];
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const dialogOpen = () => document.querySelector("dialog[open]") !== null;
+
 const isTyping = (el: Element | null) =>
   !!el && (el.matches("input, textarea, select, [contenteditable=''], [contenteditable='true']") || !!el.closest("[contenteditable='true']"));
 
@@ -213,7 +218,7 @@ export class App {
     let opened;
     try {
       opened = await openPdf(bytes, {
-        password: opts.fresh ? opts.fresh.password : this.#password,
+        password: opts.fresh ? undefined : this.#password,
         askPassword: (incorrect) => this.#askPassword(incorrect),
       });
     } catch (e) {
@@ -278,7 +283,7 @@ export class App {
     const dialog = $<HTMLDialogElement>("passwordDialog");
     const input = $<HTMLInputElement>("passwordInput");
     $("passwordMsg").textContent = incorrect
-      ? "That password is not correct. Try again."
+      ? `That password is not correct${name ? ` for ${name}` : ""}. Try again.`
       : name
         ? `${name} is protected. Enter its password.`
         : "This PDF is protected. Enter its password to open it.";
@@ -357,7 +362,7 @@ export class App {
     });
   }
 
-  #structural(label: string, plan: ops.PlanPage[], extras: Uint8Array[] = [], after: { page?: number; selection?: number[] } = {}) {
+  #structural(label: string, plan: ops.PlanPage[], extras: ops.ExtraDoc[] = [], after: { page?: number; selection?: number[] } = {}) {
     const doc = this.#requireDoc();
     if (extras.length === 0 && ops.isIdentity(plan, doc.numPages)) return Promise.resolve();
     return this.#edit(label, (current) => this.#assemble(plan, extras, current), after);
@@ -449,28 +454,45 @@ export class App {
   }
 
   async #insertDocs(docs: files.OpenedFile[], before: number) {
-    const counts: number[] = [];
-    for (const d of docs) {
-      try {
-        const { doc } = await openPdf(d.bytes);
-        counts.push(doc.numPages);
-        await doc.loadingTask.destroy();
-      } catch (e) {
-        return toast(`${d.name}: ${errorText(e)}`, "error");
-      }
+    try {
+      await this.#withSources(docs, async (sources) => {
+        const plan = ops.identityPlan(this.pageCount);
+        // Every page of each source; source 0, the open document, gives none.
+        const inserted = ops.mergePlan([0, ...sources.map((s) => s.doc.numPages)]);
+        plan.splice(before, 0, ...inserted);
+        const total = inserted.length;
+        await this.#structural(`Insert ${plural(total, "page")}`, plan, sources, {
+          page: before + 1,
+          selection: Array.from({ length: total }, (_, k) => before + k),
+        });
+      });
+    } catch (e) {
+      toast(errorText(e), "error");
     }
-    const plan = ops.identityPlan(this.pageCount);
-    const inserted = docs.flatMap((_, k) =>
-      Array.from({ length: counts[k] }, (_, index) => ({ src: k + 1, index })),
-    );
-    plan.splice(before, 0, ...inserted);
-    const total = inserted.length;
-    await this.#structural(
-      `Insert ${plural(total, "page")}`,
-      plan,
-      docs.map((d) => d.bytes),
-      { page: before + 1, selection: Array.from({ length: total }, (_, k) => before + k) },
-    );
+  }
+
+  /**
+   * Open other PDFs to take pages from, asking for their passwords, and run
+   * `fn` with them. Does nothing if a password is not given.
+   */
+  async #withSources(docs: files.OpenedFile[], fn: (sources: Source[]) => Promise<void>) {
+    const sources: Source[] = [];
+    try {
+      for (const d of docs) {
+        let opened;
+        try {
+          opened = await openPdf(d.bytes, { askPassword: (incorrect) => this.#askPassword(incorrect, d.name) });
+        } catch (e) {
+          if (e instanceof Error && e.name === "PasswordException") return; // password not given
+          throw new ops.UserError(`${d.name}: ${errorText(e)}`);
+        }
+        sources.push({ doc: opened.doc, data: d.bytes, password: opened.password });
+        if (opened.doc.isPureXfa) throw xfaError(d.name);
+      }
+      await fn(sources);
+    } finally {
+      await Promise.all(sources.map((s) => s.doc.loadingTask.destroy()));
+    }
   }
 
   async extractPages() {
@@ -588,43 +610,31 @@ export class App {
     if (!order || !(await this.confirmDiscard())) return;
 
     await this.#withBusy("Merging…", async () => {
-      const sources: { name: string; bytes: Uint8Array; password?: string }[] = [];
-      for (const entry of order) {
-        sources.push(
-          entry.file
-            ? { name: entry.name, bytes: entry.file.bytes }
-            : { name: entry.name, bytes: await this.currentBytes(), password: this.#password },
-        );
-      }
-      // Open each file to count its pages, asking for passwords where needed.
-      // The first is the base the others are added to.
-      const opened = [];
-      try {
-        for (const s of sources) {
-          let result;
-          try {
-            result = await openPdf(s.bytes, {
-              password: s.password,
-              askPassword: (incorrect) => this.#askPassword(incorrect, s.name),
-            });
-          } catch (e) {
-            if (e instanceof Error && e.name === "PasswordException") return; // password not given
-            throw new ops.UserError(`${s.name}: ${errorText(e)}`);
-          }
-          opened.push(result);
+      // The open document (at `at`, if listed) is already open; the files are
+      // opened to count their pages, asking for passwords where needed.
+      const at = order.findIndex((e) => !e.file);
+      if (at >= 0 && this.#requireDoc().isPureXfa) throw xfaError(order[at].name);
+      await this.#withSources(order.flatMap((e) => (e.file ? [e.file] : [])), async (picked) => {
+        const wasProtected = picked.some((s) => s.password !== undefined) || (at >= 0 && this.#password !== undefined);
+        let merged: Uint8Array;
+        if (at === 0) {
+          // The open document is the base the others are added to.
+          const counts = picked.map((s) => s.doc.numPages);
+          merged = await this.#withSavedDoc((doc) => ops.assemble(doc, ops.mergePlan([doc.numPages, ...counts]), picked));
+        } else {
+          const sources = picked.map((s) => ({ data: s.data, password: s.password, pages: s.doc.numPages }));
+          if (at > 0) sources.splice(at, 0, { data: await this.currentBytes(), password: this.#password, pages: this.pageCount });
+          merged = await ops.assemble(picked[0].doc, ops.mergePlan(sources.map((s) => s.pages)), sources.slice(1));
         }
-        const [base, ...rest] = opened;
-        const extras = rest.map((r, k) => ({ data: sources[k + 1].bytes, password: r.password }));
-        const merged = await ops.assemble(base.doc, ops.mergePlan(opened.map((r) => r.doc.numPages)), extras);
         const name = files.withSuffix(order[0].name, "-merged");
-        if (await this.#load(merged, { fresh: { name, target: null, password: base.password } })) {
+        if (await this.#load(merged, { fresh: { name, target: null } })) {
           this.#docDirty = true; // a new document, not saved anywhere yet
           this.#renderTitle();
           toast(`Merged ${plural(order.length, "file")} into ${plural(this.pageCount, "page")}`);
+          // pdf.js writes a document assembled from several files without encryption.
+          if (wasProtected) toast("The merged document is not password-protected.", "error");
         }
-      } finally {
-        await Promise.all(opened.map((r) => r.doc.loadingTask.destroy()));
-      }
+      });
     });
   }
 
@@ -634,20 +644,30 @@ export class App {
     const list = $("mergeList");
     const ok = $<HTMLButtonElement>("mergeOk");
     const items = [...entries];
-    const button = (act: string, label: string, name: string, disabled: boolean) =>
-      `<button type="button" class="icon" data-act="${act}" title="${label}" aria-label="${label}: ${escapeHtml(name)}"${disabled ? " disabled" : ""}>${icon(act === "remove" ? "close" : act)}</button>`;
+    const span = (className: string, text: string) =>
+      Object.assign(document.createElement("span"), { className, textContent: text, title: text });
+    const button = (act: string, label: string, name: string, disabled: boolean) => {
+      const b = Object.assign(document.createElement("button"), { type: "button", className: "icon", title: label, disabled });
+      b.dataset.act = act;
+      b.setAttribute("aria-label", `${label}: ${name}`);
+      b.innerHTML = icon(act === "remove" ? "close" : act);
+      return b;
+    };
     const render = (focus?: { index: number; act: string }) => {
-      list.innerHTML = items
-        .map(
-          (e, i) =>
-            `<li data-index="${i}"><span class="file-name" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</span>` +
-            (e.file ? "" : '<span class="tag muted">open document</span>') +
-            button("up", "Move up", e.name, i === 0) +
-            button("down", "Move down", e.name, i === items.length - 1) +
-            button("remove", "Remove", e.name, false) +
-            "</li>",
-        )
-        .join("");
+      list.replaceChildren(
+        ...items.map((e, i) => {
+          const li = document.createElement("li");
+          li.dataset.index = String(i);
+          li.append(span("file-name", e.name));
+          if (!e.file) li.append(span("tag muted", "open document"));
+          li.append(
+            button("up", "Move up", e.name, i === 0),
+            button("down", "Move down", e.name, i === items.length - 1),
+            button("remove", "Remove", e.name, false),
+          );
+          return li;
+        }),
+      );
       ok.disabled = items.length < 2;
       ok.title = items.length < 2 ? "Add at least two files" : "";
       if (!focus) return;
@@ -1155,6 +1175,8 @@ export class App {
 
   #wireKeyboard() {
     document.addEventListener("keydown", (e) => {
+      // An open dialog keeps its own keys; nothing may change the document under it.
+      if (dialogOpen()) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
       const typing = isTyping(document.activeElement);
@@ -1198,18 +1220,13 @@ export class App {
   }
 
   /**
-   * Enter in a dialog's field presses its primary button (Open, Apply,
-   * Choose folder…). Left to the browser, the form's implicit submission
-   * would press its first button, which is Cancel.
+   * Cancel buttons are plain buttons that close their dialog, so Enter in a
+   * field (the form's implicit submission) presses the first submit button:
+   * the primary one (Open, Apply, Choose folder…), and only while it is enabled.
    */
   #wireDialogs() {
-    for (const dialog of document.querySelectorAll("dialog")) {
-      dialog.addEventListener("keydown", (e) => {
-        if (e.key !== "Enter" || e.isComposing || !(e.target as Element).matches("input")) return;
-        e.preventDefault();
-        const primary = dialog.querySelector<HTMLButtonElement>("menu button.primary");
-        if (primary && !primary.disabled) primary.click();
-      });
+    for (const cancel of document.querySelectorAll<HTMLButtonElement>('dialog button[value="cancel"]')) {
+      cancel.addEventListener("click", () => cancel.closest("dialog")!.close("cancel"));
     }
   }
 
@@ -1241,7 +1258,7 @@ export class App {
       if (!hasFiles(e)) return;
       e.preventDefault();
       if (!file) return toast("That is not a PDF file.", "error");
-      if (this.#busy || !(await this.confirmDiscard())) return;
+      if (this.#busy || dialogOpen() || !(await this.confirmDiscard())) return;
       await this.openFile(await files.fromFile(file));
     });
     // Thumbnail drops stop propagation, so the hint must be cleared there too.
@@ -1280,8 +1297,9 @@ function summarise(names: string[]) {
   return names.length <= 3 ? names.join(", ") : `${names[0]}, ${names[1]}, …, ${names.at(-1)}`;
 }
 
-function escapeHtml(text: string) {
-  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+/** pdf.js leaves out the pages of a file that is only an XFA form. */
+function xfaError(name: string) {
+  return new ops.UserError(`${name}: XFA forms cannot be combined with other PDFs.`);
 }
 
 function errorText(e: unknown) {

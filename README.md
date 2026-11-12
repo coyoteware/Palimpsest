@@ -10,7 +10,7 @@ An open source PDF viewer and editor for the desktop. It is a small native app b
 - **Annotate**: add text, draw, highlight (select text, or draw freely), place images and signature scans. Annotations are saved as standard PDF annotations, so other viewers show them and Palimpsest can edit them again later.
 - **Fill forms**: AcroForm fields render as editable inputs and their values are saved into the file.
 - **Organise pages**: rotate, delete, duplicate, reorder by dragging, insert blank pages, insert pages from other PDFs (drop them on the page list), save a selection as a new PDF.
-- **Split and merge**: split a document into several PDFs, every N pages or by page ranges such as `1-3, 4, 5-`, saved to a folder you choose. Merge PDFs, in an order you set, into a new document; the open document can be one of them, unsaved edits included. Password-protected files can be merged after you enter their password.
+- **Split and merge**: split a document into several PDFs, every N pages or by page ranges such as `1-3, 4, 5-`, saved to a folder you choose. Merge PDFs, in an order you set, into a new document; the open document can be one of them, unsaved edits included. Password-protected files can be merged after you enter their password; the merged document has no password.
 - **Document properties**: edit title, author, subject and keywords.
 - **Undo/redo** across both annotation edits and page operations.
 - **Save in place**: a file opened from disk, from the command line or with "Open with" is written back to the same file. Save as and print are also included.
