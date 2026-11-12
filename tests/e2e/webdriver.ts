@@ -11,12 +11,20 @@ export const Key = { Control: "", Shift: "", Escape: "", Enter: "" }
 type Json = Record<string, unknown>;
 type Point = readonly [number, number];
 
-async function call<T>(base: string, method: string, path: string, body?: Json, signal?: AbortSignal): Promise<T> {
+/** No WebDriver command should take this long; without a limit a stuck driver hangs the run silently. */
+const COMMAND_TIMEOUT = 60_000;
+
+async function call<T>(base: string, method: string, path: string, body?: Json, timeout = COMMAND_TIMEOUT): Promise<T> {
   const res = await fetch(`${base}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body && JSON.stringify(body),
-    signal,
+    signal: AbortSignal.timeout(timeout),
+  }).catch((e: unknown) => {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      throw new Error(`WebDriver ${method} ${path}: no answer within ${timeout / 1000} s`);
+    }
+    throw e;
   });
   const { value } = (await res.json()) as { value: T & { error?: string; message?: string } };
   if (!res.ok) throw new Error(`WebDriver ${method} ${path}: ${value?.error} ${value?.message ?? ""}`.trim());
@@ -47,10 +55,10 @@ export class Session {
   static async start(driver: string, binary: string, args: string[] = []) {
     const body = { capabilities: { alwaysMatch: capabilities(binary, args) } };
     try {
-      const { sessionId } = await call<{ sessionId: string }>(driver, "POST", "/session", body, AbortSignal.timeout(45_000));
+      const { sessionId } = await call<{ sessionId: string }>(driver, "POST", "/session", body, 45_000);
       return new Session(driver, sessionId);
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === "TimeoutError")) throw e;
+      if (!/no answer within/.test((e as Error).message)) throw e;
       throw new Error(
         "The WebDriver did not connect to the app within 45 s." +
           (process.platform === "win32" ? " msedgedriver hangs like this when its version differs from the WebView2 runtime's." : ""),
@@ -58,8 +66,8 @@ export class Session {
     }
   }
 
-  #cmd<T>(method: string, path: string, body?: Json) {
-    return call<T>(this.#base, method, path, body);
+  #cmd<T>(method: string, path: string, body?: Json, timeout?: number) {
+    return call<T>(this.#base, method, path, body, timeout);
   }
 
   /** Run `script` (a function body; use `return`) in the page. */
@@ -190,8 +198,8 @@ export class Session {
     return this.exec<boolean>("return !!document.querySelector(arguments[0])?.checkVisibility()", css);
   }
 
-  /** End the session; the driver quits the app. */
+  /** End the session; the driver quits the app. Best effort: the app may already be gone. */
   async end() {
-    await this.#cmd("DELETE", "").catch(() => {});
+    await this.#cmd("DELETE", "", undefined, 15_000).catch(() => {});
   }
 }

@@ -34,7 +34,7 @@ function driverCommand() {
 async function waitUntilReady(url: string, failed: Promise<never>) {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
-    const ready = fetch(`${url}/status`)
+    const ready = fetch(`${url}/status`, { signal: AbortSignal.timeout(2_000) })
       .then(async (r) => ((await r.json()) as { value: { ready: boolean } }).value.ready)
       .catch(() => false);
     if (await Promise.race([ready, failed])) return;
@@ -62,7 +62,10 @@ export default async function setup(project: TestProject) {
   });
   failed.catch(() => {}); // only awaited during startup
   const url = `http://127.0.0.1:${PORT}`;
+  const step = (what: string) => console.log(`[e2e setup ${new Date().toISOString().slice(11, 19)}] ${what}`);
+  step(`starting ${command}`);
   await waitUntilReady(url, failed);
+  step("driver ready");
 
   // One trial session, so a driver that cannot reach the app fails the run
   // at once instead of every test timing out in turn. Not for a given build
@@ -70,7 +73,11 @@ export default async function setup(project: TestProject) {
   // take over the next launch.
   if (!process.env.PALIMPSEST_APP) {
     try {
-      await (await Session.start(url, binary)).end();
+      step("trial session: launching the app");
+      const trial = await Session.start(url, binary);
+      step("trial session: connected, closing");
+      await trial.end();
+      step("trial session: done");
     } catch (e) {
       driver.kill();
       const hint =
