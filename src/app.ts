@@ -158,6 +158,7 @@ export class App {
     this.#wireFind();
     this.#wireKeyboard();
     this.#wireDragAndDrop();
+    this.#wireDialogs();
     container.addEventListener("wheel", (e) => this.#onWheel(e), { passive: false });
     window.addEventListener("beforeunload", (e) => {
       if (!this.dirty) return;
@@ -558,13 +559,6 @@ export class App {
       on(input, "focus", choose);
     }
     for (const mode of ["every", "ranges"]) on(radio(mode), "change", update);
-    // Enter in a field splits; a form's implicit submission would press Cancel, its first button.
-    on(dialog, "keydown", (e) => {
-      const ke = e as KeyboardEvent;
-      if (ke.key !== "Enter" || !(ke.target as HTMLElement).matches("input")) return;
-      ke.preventDefault();
-      if (!ok.disabled) ok.click();
-    });
     // Start on the chosen mode's button: focusing a field would switch to its mode.
     for (const mode of ["every", "ranges"]) radio(mode).autofocus = radio(mode).checked;
     update();
@@ -1201,6 +1195,22 @@ export class App {
         return handled(), void this.setTool(TOOL_KEYS[key]);
       }
     });
+  }
+
+  /**
+   * Enter in a dialog's field presses its primary button (Open, Apply,
+   * Choose folder…). Left to the browser, the form's implicit submission
+   * would press its first button, which is Cancel.
+   */
+  #wireDialogs() {
+    for (const dialog of document.querySelectorAll("dialog")) {
+      dialog.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || e.isComposing || !(e.target as Element).matches("input")) return;
+        e.preventDefault();
+        const primary = dialog.querySelector<HTMLButtonElement>("menu button.primary");
+        if (primary && !primary.disabled) primary.click();
+      });
+    }
   }
 
   // ----------------------------------------------------------- drag/drop

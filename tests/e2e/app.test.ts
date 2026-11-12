@@ -475,7 +475,9 @@ test("edits document properties", async () => {
   await poll(() => app.value("#propTitle")).toBe("Palimpsest sample");
   await app.fill("#propTitle", "Renamed by test");
   await app.fill("#propAuthor", "Test Author");
-  await app.click("#propsDialog button.primary");
+  // Enter in a field applies, as the primary button does.
+  await app.press(Key.Enter);
+  await poll(() => isOpen(app, "#propsDialog")).toBe(false);
   await poll(() => dirty(app)).toBe(true);
   const out = join(dir, "out.pdf");
   answer({ save: out });
@@ -506,11 +508,12 @@ test("opens password-protected PDFs and keeps them encrypted", async () => {
   const app = await launch(encrypted);
   const passwordDialog = () => app.exec<boolean>("return document.querySelector('#passwordDialog').open");
   await poll(passwordDialog, STARTUP).toBe(true);
+  // Enter submits the password.
   await app.fill("#passwordInput", "wrong");
-  await app.click("#passwordDialog button.primary");
+  await app.press(Key.Enter);
   await poll(() => app.text("#passwordMsg")).toContain("not correct");
   await app.fill("#passwordInput", "secret");
-  await app.click("#passwordDialog button.primary");
+  await app.press(Key.Enter);
   await opened(app);
 
   await app.click(thumb(1));
