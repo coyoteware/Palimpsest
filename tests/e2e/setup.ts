@@ -9,6 +9,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { TestProject } from "vitest/node";
+import { Session } from "./webdriver";
 
 declare module "vitest" {
   export interface ProvidedContext {
@@ -62,6 +63,23 @@ export default async function setup(project: TestProject) {
   failed.catch(() => {}); // only awaited during startup
   const url = `http://127.0.0.1:${PORT}`;
   await waitUntilReady(url, failed);
+
+  // One trial session, so a driver that cannot reach the app fails the run
+  // at once instead of every test timing out in turn. Not for a given build
+  // (PALIMPSEST_APP): with single-instance on, a lingering trial app would
+  // take over the next launch.
+  if (!process.env.PALIMPSEST_APP) {
+    try {
+      await (await Session.start(url, binary)).end();
+    } catch (e) {
+      driver.kill();
+      const hint =
+        process.platform === "win32"
+          ? " On Windows, run the tests without administrator rights: an elevated WebView2 ignores the debugging switch msedgedriver needs (scripts/windows-unelevated.ps1)."
+          : "";
+      throw new Error(`The WebDriver could not start the app: ${(e as Error).message}${hint}`);
+    }
+  }
 
   project.provide("driver", url);
   project.provide("binary", binary);

@@ -15,6 +15,7 @@ permissions:
 jobs:
   windows-portable:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,12 +41,17 @@ jobs:
       - name: Edge WebDriver matching the WebView2 runtime
         shell: pwsh
         run: ./scripts/edgedriver.ps1
-      - name: End-to-end tests (test build)
-        run: npm run test:e2e
+      - name: Build the test app
+        run: npx tauri build --debug --no-bundle --features e2e
+      # The runner is elevated, and an elevated WebView2 ignores the debugging switch msedgedriver needs.
+      - name: End-to-end tests (without administrator rights)
+        shell: pwsh
+        run: ./scripts/windows-unelevated.ps1 npx vitest run -c vitest.e2e.config.ts
       - name: Release build
         run: npm run dist
       - name: Smoke-test the release build
-        run: npx vitest run -c vitest.e2e.config.ts tests/e2e/shell.test.ts -t "command line"
+        shell: pwsh
+        run: ./scripts/windows-unelevated.ps1 npx vitest run -c vitest.e2e.config.ts tests/e2e/shell.test.ts -t "command line"
         env:
           PALIMPSEST_APP: ${{ github.workspace }}\src-tauri\target\release\palimpsest.exe
       - name: Name the portable exe

@@ -26,6 +26,7 @@ jobs:
     name: End-to-end (Linux, WebKitGTK)
     # Pinned: Ubuntu 26.04 renames the WebKitGTK WebDriver package.
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,6 +51,7 @@ jobs:
   e2e-windows:
     name: End-to-end (Windows, WebView2)
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,8 +66,12 @@ jobs:
       - name: Edge WebDriver matching the WebView2 runtime
         shell: pwsh
         run: ./scripts/edgedriver.ps1
-      - name: End-to-end tests
-        run: npm run test:e2e
+      - name: Build the test app
+        run: npx tauri build --debug --no-bundle --features e2e
+      # The runner is elevated, and an elevated WebView2 ignores the debugging switch msedgedriver needs.
+      - name: End-to-end tests (without administrator rights)
+        shell: pwsh
+        run: ./scripts/windows-unelevated.ps1 npx vitest run -c vitest.e2e.config.ts
       - name: Portable exe
         run: npm run dist
       - uses: actions/upload-artifact@v4
