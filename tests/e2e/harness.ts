@@ -14,10 +14,18 @@ import { Session } from "./webdriver";
 const hooks = inject("hooks");
 let current: Session | null = null;
 
-/** Start the app, opening `files` as if passed on the command line. */
+/**
+ * Start the app, opening `files` as if passed on the command line, and wait
+ * until it has started (msedgedriver hands over the session before the page
+ * has loaded). Files go as `--open=<path>`: msedgedriver turns every argument
+ * into a `--` switch.
+ */
 export async function launch(...files: string[]) {
-  current = await Session.start(inject("driver"), inject("binary"), files);
-  return current;
+  const app = (current = await Session.start(inject("driver"), inject("binary"), files.map((f) => `--open=${f}`)));
+  const started = () =>
+    app.exec<boolean>("return document.readyState === 'complete' && !!window.palimpsest").catch(() => false);
+  await poll(started, STARTUP).toBe(true);
+  return app;
 }
 
 /** For tests that close the app themselves: end the session without checking the page. */

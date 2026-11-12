@@ -323,10 +323,18 @@ fn on_window_event(window: &Window, event: &WindowEvent) {
     }
 }
 
-/// PDF paths among command-line arguments, resolved against `cwd`.
+/// PDF paths among command-line arguments, resolved against `cwd`: plain
+/// paths (as "Open with" passes them) or `--open=<path>`. Other switches are
+/// ignored. The explicit form exists because some launchers, msedgedriver
+/// among them, turn every argument into a `--` switch.
 fn pdf_args(args: impl IntoIterator<Item = String>, cwd: &Path) -> Vec<PathBuf> {
     args.into_iter()
-        .filter(|a| !a.starts_with('-') && a.to_ascii_lowercase().ends_with(".pdf"))
+        .filter_map(|a| match a.strip_prefix("--open=") {
+            Some(path) => Some(path.to_owned()),
+            None if a.starts_with('-') => None,
+            None => Some(a),
+        })
+        .filter(|a| a.to_ascii_lowercase().ends_with(".pdf"))
         .filter_map(|a| std::path::absolute(cwd.join(a)).ok())
         .filter(|p| p.is_file())
         .collect()
