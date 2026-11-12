@@ -1,7 +1,7 @@
 /**
  * Page-level document operations.
  *
- * Structural edits (reorder, delete, duplicate, insert, extract) go through
+ * Structural edits (reorder, delete, duplicate, insert, extract, split, merge) go through
  * pdf.js' own page assembler, `PDFDocumentProxy.extractPages()`. It writes a
  * fresh file containing only reachable objects (deleted pages are really gone),
  * keeps forms, outlines, named destinations, page labels and the structure
@@ -22,9 +22,14 @@ export interface PlanPage {
   index: number;
 }
 
+/** Another PDF to take pages from, with its password if it has one. */
+export type ExtraDoc = Uint8Array | { data: Uint8Array; password?: string };
+
 /** Shape of one entry accepted by pdf.js `extractPages()`. */
 export interface ExtractPageInfo {
   document: Uint8Array | null;
+  /** Read by pdf.js for an encrypted `document`, though missing from its type declarations. */
+  password?: string;
   includePages: number[];
   pageIndices: number[];
 }
@@ -73,6 +78,66 @@ export function extractPlan(pages: Iterable<number>): PlanPage[] {
   return [...new Set(pages)].sort((a, b) => a - b).map((index) => ({ src: 0, index }));
 }
 
+/** Every page of each source in turn: `counts[k]` is the page count of source k (0 = the open document). */
+export function mergePlan(counts: number[]): PlanPage[] {
+  return counts.flatMap((count, src) => Array.from({ length: count }, (_, index) => ({ src, index })));
+}
+
+/** An inclusive, 0-based page range [first, last]. */
+export type PageRange = readonly [number, number];
+
+export const rangePlan = ([first, last]: PageRange): PlanPage[] =>
+  Array.from({ length: last - first + 1 }, (_, k) => ({ src: 0, index: first + k }));
+
+/** Consecutive runs of `size` pages; the last run takes what is left. */
+export function everyRanges(n: number, size: number): PageRange[] {
+  if (!Number.isInteger(size) || size < 1) throw new UserError("Enter a whole number of pages, 1 or more.");
+  const ranges: PageRange[] = [];
+  for (let first = 0; first < n; first += size) ranges.push([first, Math.min(first + size, n) - 1]);
+  return ranges;
+}
+
+/**
+ * Parse page ranges as a user types them, 1-based: "1-3, 5, 8-" means pages
+ * 1 to 3, page 5, and page 8 to the end. "-4" means pages 1 to 4. Commas or
+ * semicolons separate ranges; each range becomes one file when splitting.
+ */
+export function parseRanges(text: string, n: number): PageRange[] {
+  const parts = text.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) throw new UserError("Enter the pages for each file, like 1-3, 4, 5-.");
+  return parts.map((part): PageRange => {
+    const single = /^\d+$/.exec(part);
+    const range = /^(\d*)\s*[-–]\s*(\d*)$/.exec(part);
+    if (!single && !(range && (range[1] || range[2]))) throw new UserError(`“${part}” is not a page or range.`);
+    const first = single ? Number(part) : range![1] ? Number(range![1]) : 1;
+    const last = single ? first : range![2] ? Number(range![2]) : n;
+    for (const p of [first, last]) {
+      if (p < 1 || p > n) throw new UserError(`There is no page ${p}; the document has ${n === 1 ? "1 page" : `${n} pages`}.`);
+    }
+    if (first > last) throw new UserError(`“${part}” runs backwards.`);
+    return [first - 1, last - 1];
+  });
+}
+
+/**
+ * File names for the parts of a split, from the document's name: "report.pdf"
+ * gives "report-p1-3.pdf", "report-p4.pdf". Page numbers are zero-padded to
+ * the width of the page count so the files sort in page order.
+ */
+export function splitNames(fileName: string, ranges: PageRange[], n: number): string[] {
+  const base = fileName.replace(/\.pdf$/i, "") || "document";
+  const width = String(n).length;
+  const num = (i: number) => String(i + 1).padStart(width, "0");
+  const names = ranges.map(([a, b]) => `${base}-p${num(a)}${a === b ? "" : `-${num(b)}`}`);
+  // The same range given twice gets the same name; number the repeats.
+  const seen = new Map<string, number>();
+  return names.map((name) => {
+    const k = (seen.get(name) ?? 0) + 1;
+    seen.set(name, k);
+    return `${name}${k > 1 ? ` (${k})` : ""}.pdf`;
+  });
+}
+
 export function isIdentity(plan: PlanPage[], n: number): boolean {
   return plan.length === n && plan.every((p, i) => p.src === 0 && p.index === i);
 }
@@ -83,7 +148,7 @@ export function isIdentity(plan: PlanPage[], n: number): boolean {
  * `pageIndices[k]` is the output slot of `includePages[k]`. A page used twice
  * therefore appears once at copy level 0 and once at level 1.
  */
-export function planToPageInfos(plan: PlanPage[], extras: Uint8Array[] = []): ExtractPageInfo[] {
+export function planToPageInfos(plan: PlanPage[], extras: ExtraDoc[] = []): ExtractPageInfo[] {
   const bySource = new Map<number, Array<Array<[number, number]>>>();
   const uses = new Map<string, number>();
   plan.forEach(({ src, index }, slot) => {
@@ -97,10 +162,13 @@ export function planToPageInfos(plan: PlanPage[], extras: Uint8Array[] = []): Ex
   });
   const infos: ExtractPageInfo[] = [];
   for (const [src, levels] of [...bySource].sort((a, b) => a[0] - b[0])) {
+    const extra = src === 0 ? null : extras[src - 1];
+    const source = extra instanceof Uint8Array ? { data: extra } : extra;
     for (const pairs of levels) {
       pairs.sort((a, b) => a[0] - b[0]);
       infos.push({
-        document: src === 0 ? null : extras[src - 1],
+        document: source?.data ?? null,
+        ...(source?.password !== undefined && { password: source.password }),
         includePages: pairs.map(([index]) => index),
         pageIndices: pairs.map(([, slot]) => slot),
       });
@@ -109,7 +177,7 @@ export function planToPageInfos(plan: PlanPage[], extras: Uint8Array[] = []): Ex
   return infos;
 }
 
-export async function assemble(doc: AssemblerDoc, plan: PlanPage[], extras: Uint8Array[] = []) {
+export async function assemble(doc: AssemblerDoc, plan: PlanPage[], extras: ExtraDoc[] = []) {
   if (plan.length === 0) throw new UserError("A PDF needs at least one page.");
   for (const p of plan) {
     if (p.src === 0 && (p.index < 0 || p.index >= doc.numPages)) {

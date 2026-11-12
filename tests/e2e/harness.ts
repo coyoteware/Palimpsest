@@ -51,7 +51,7 @@ export function useApp() {
 }
 
 /** Answers for the app's next file dialogs: the paths to return. Anything not given is cancelled. */
-export function answer(answers: { pdf?: string[]; image?: string; save?: string }) {
+export function answer(answers: { pdf?: string[]; image?: string; save?: string; folder?: string }) {
   writeFileSync(join(hooks, "answers.json"), JSON.stringify(answers));
 }
 

@@ -11,6 +11,14 @@ export interface DesktopBridge {
   openPdfs(multiple: boolean): Promise<DesktopFile[]>;
   openImage(): Promise<{ name: string; type: string; bytes: Uint8Array } | null>;
   saveAs(suggestedName: string): Promise<{ name: string; path: string } | null>;
+  /**
+   * Asks for a folder to save files with these names in, and allows writing
+   * exactly those files there. `exists` is true where a file is already there.
+   */
+  saveToFolder(names: string[]): Promise<{
+    folder: { name: string; path: string };
+    files: { name: string; path: string; exists: boolean }[];
+  } | null>;
   write(path: string, bytes: Uint8Array): Promise<void>;
   /**
    * Opens the native print dialog where window.print() does not work (macOS,

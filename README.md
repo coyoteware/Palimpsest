@@ -10,6 +10,7 @@ An open source PDF viewer and editor for the desktop. It is a small native app b
 - **Annotate**: add text, draw, highlight (select text, or draw freely), place images and signature scans. Annotations are saved as standard PDF annotations, so other viewers show them and Palimpsest can edit them again later.
 - **Fill forms**: AcroForm fields render as editable inputs and their values are saved into the file.
 - **Organise pages**: rotate, delete, duplicate, reorder by dragging, insert blank pages, insert pages from other PDFs (drop them on the page list), save a selection as a new PDF.
+- **Split and merge**: split a document into several PDFs, every N pages or by page ranges such as `1-3, 4, 5-`, saved to a folder you choose. Merge PDFs, in an order you set, into a new document; the open document can be one of them, unsaved edits included. Password-protected files can be merged after you enter their password.
 - **Document properties**: edit title, author, subject and keywords.
 - **Undo/redo** across both annotation edits and page operations.
 - **Save in place**: a file opened from disk, from the command line or with "Open with" is written back to the same file. Save as and print are also included.
@@ -83,12 +84,12 @@ The [Release workflow](.github/workflows/release.yml) runs on a Windows runner. 
 | --- | --- |
 | Rendering, text layer, search, links, forms | [pdf.js](https://github.com/mozilla/pdf.js) viewer component (`pdfjs-dist/web/pdf_viewer.mjs`) |
 | Annotation editing and saving | pdf.js annotation editor; `saveDocument()` appends edits as an incremental update |
-| Reorder, delete, duplicate, insert, extract | pdf.js page assembler (`PDFDocumentProxy.extractPages`), which writes a new file containing only reachable objects, so deleted pages are really gone. It keeps forms, outlines, named destinations, page labels and the structure tree. |
+| Reorder, delete, duplicate, insert, extract, split, merge | pdf.js page assembler (`PDFDocumentProxy.extractPages`), which writes a new file containing only reachable objects, so deleted pages are really gone. It keeps forms, outlines, named destinations, page labels and the structure tree. |
 | Rotation, metadata, blank pages | [pdf-lib](https://github.com/Hopding/pdf-lib) |
 | Desktop shell | [Tauri](https://tauri.app/) (`src-tauri/`): the web app in `dist/` is embedded in the binary and served from the app's own origin with a strict CSP. The page gets no Tauri APIs; it reaches files only through a narrow bridge (`window.palimpsestDesktop`) backed by Rust commands and native dialogs. |
 | Web engine | The system webview: WebView2 (Chromium-based Edge) on Windows, WKWebView on macOS, WebKitGTK on Linux |
 
-The page can only read and write files the user picked in a dialog or passed on the command line. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
+The page can only read and write files the user picked in a dialog or passed on the command line. Splitting asks for a folder, and the shell then allows writing only the named PDFs there. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
 
 A page operation first folds pending annotations and form values into the current bytes, transforms them, and reloads the result. Each step keeps a snapshot for undo. Annotation edits between page operations use pdf.js's own undo stack.
 

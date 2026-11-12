@@ -30,6 +30,15 @@
       const path = await invoke("save_as", { suggestedName: String(suggestedName) });
       return path ? { name: baseName(path), path } : null;
     },
+    async saveToFolder(names) {
+      const chosen = await invoke("save_to_folder", { names: Array.from(names, String) });
+      if (!chosen) return null;
+      const [folder, files] = chosen;
+      return {
+        folder: { name: baseName(folder) || folder, path: folder },
+        files: files.map(([path, exists]) => ({ name: baseName(path), path, exists })),
+      };
+    },
     // The bytes travel as the raw request body; the path goes in a header.
     write: (path, bytes) => invoke("write_file", bytes, { headers: { "x-path": encodeURIComponent(String(path)) } }),
   };

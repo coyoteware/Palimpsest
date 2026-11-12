@@ -72,7 +72,7 @@ test("the page gets no Tauri APIs and can only touch files the user chose", asyn
     process: "undefined",
     tauri: "undefined",
     // Release builds have `print` on macOS only; test builds route printing through the shell everywhere.
-    bridge: ["initialFile", "onCloseRequested", "openImage", "openPdfs", "platform", "print", "saveAs", "write"],
+    bridge: ["initialFile", "onCloseRequested", "openImage", "openPdfs", "platform", "print", "saveAs", "saveToFolder", "write"],
   });
 
   /** Runs an async function in the page and reports "ok" or its error. */
@@ -97,6 +97,28 @@ test("the page gets no Tauri APIs and can only touch files the user chose", asyn
     await attempt("() => window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url: 'https://example.org/' })"),
   ).toMatch(/not allowed/);
   expect(shellLog()).toEqual([]);
+
+  // Picking a folder allows writing the named PDFs there, and nothing else.
+  const folder = workDir();
+  answer({ folder });
+  const save = (names: string[]) =>
+    app.execAsync<string>(
+      `const done = arguments[arguments.length - 1];
+       window.palimpsestDesktop.saveToFolder(arguments[0]).then((r) => done(JSON.stringify(r)), (e) => done(String(e?.message ?? e)));`,
+      names,
+    );
+  for (const bad of [["../escape.pdf"], ["sub/part.pdf"], ["sub\\part.pdf"], ["C:part.pdf"], ["notes.txt"], [".."], []]) {
+    expect(await save(bad)).toMatch(/Not a PDF file name|No files/);
+  }
+  const granted = JSON.parse(await save(["part 1.pdf"])) as { files: { name: string; path: string; exists: boolean }[] };
+  expect(granted.files).toEqual([{ name: "part 1.pdf", path: join(folder, "part 1.pdf"), exists: false }]);
+  expect(await attempt("(p) => window.palimpsestDesktop.write(p, new Uint8Array([37, 80, 68, 70]))", granted.files[0].path)).toBe("ok");
+  expect(await attempt("(p) => window.palimpsestDesktop.write(p, new Uint8Array([37, 80, 68, 70]))", join(folder, "other.pdf"))).toMatch(
+    /not authorised/,
+  );
+  expect(readdirSync(folder)).toEqual(["part 1.pdf"]);
+  // Invalid names are refused before a folder is asked for.
+  expect(shellLog().flatMap((e) => e.dialog ?? [])).toEqual(["folder"]);
 });
 
 test("links open in the default browser, never inside the app", async () => {

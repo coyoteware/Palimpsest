@@ -13,7 +13,7 @@
 mod e2e;
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -160,6 +160,44 @@ async fn save_as(window: Window, shell: State<'_, Shell>, suggested_name: String
         PathBuf::from(with_ext)
     };
     Ok(shell.grant(&window, vec![path]).pop())
+}
+
+/// A file name ending in .pdf, with no folder, drive or `..` in it.
+fn is_pdf_file_name(name: &str) -> bool {
+    let mut parts = Path::new(name).components();
+    matches!((parts.next(), parts.next()), (Some(Component::Normal(_)), None))
+        && !name.contains(['/', '\\', ':'])
+        && has_pdf_extension(Path::new(name))
+}
+
+/// The folder chosen, and each file in it with whether it already exists.
+type FolderFiles = (PathBuf, Vec<(PathBuf, bool)>);
+
+/// Asks for a folder to save the files `names` in (a split document's parts).
+/// Lets the window write exactly those files there, and returns the folder
+/// and, for each name, its path and whether a file is already there.
+#[tauri::command]
+async fn save_to_folder(
+    window: Window,
+    shell: State<'_, Shell>,
+    names: Vec<String>,
+) -> Result<Option<FolderFiles>, String> {
+    if names.is_empty() {
+        return Err("No files to save.".into());
+    }
+    if let Some(bad) = names.iter().find(|n| !is_pdf_file_name(n)) {
+        return Err(format!("Not a PDF file name: {bad}"));
+    }
+    let chosen = scripted::<PathBuf>("folder").unwrap_or_else(|| {
+        file_dialog(&window, &shell).blocking_pick_folder().and_then(|f| f.into_path().ok())
+    });
+    let Some(dir) = chosen else { return Ok(None) };
+    let paths = shell.grant(&window, names.iter().map(|n| dir.join(n)).collect());
+    let files = paths.into_iter().map(|p| {
+        let exists = p.exists();
+        (p, exists)
+    });
+    Ok(Some((dir, files.collect())))
 }
 
 #[tauri::command]
@@ -365,11 +403,11 @@ fn main() {
         .manage(Shell::default());
     #[cfg(not(feature = "e2e"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
-        initial_file, pick_pdfs, pick_image, save_as, read_file, write_file, close_window, print_page
+        initial_file, pick_pdfs, pick_image, save_as, save_to_folder, read_file, write_file, close_window, print_page
     ]);
     #[cfg(feature = "e2e")]
     let builder = builder.invoke_handler(tauri::generate_handler![
-        initial_file, pick_pdfs, pick_image, save_as, read_file, write_file, close_window, print_page,
+        initial_file, pick_pdfs, pick_image, save_as, save_to_folder, read_file, write_file, close_window, print_page,
         e2e::request_close
     ]);
 

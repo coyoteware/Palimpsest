@@ -13,6 +13,7 @@
         <div class="group">
           <button id="btnSidebar" class="icon needs-doc" data-icon="sidebar" title="Pages panel (F4)" aria-label="Toggle pages panel" aria-pressed="true"></button>
           <button id="btnOpen" class="icon" data-icon="open" title="Open (Ctrl+O)" aria-label="Open"></button>
+          <button id="btnMerge" class="icon" data-icon="merge" title="Merge PDFs…" aria-label="Merge PDFs"></button>
           <button id="btnSave" class="icon needs-doc" data-icon="save" title="Save (Ctrl+S)" aria-label="Save"></button>
           <button id="btnSaveAs" class="icon needs-doc" data-icon="saveAs" title="Save as… (Ctrl+Shift+S)" aria-label="Save as"></button>
           <button id="btnPrint" class="icon needs-doc" data-icon="print" title="Print (Ctrl+P)" aria-label="Print"></button>
@@ -100,6 +101,7 @@
           <button id="pgBlank" class="icon" data-icon="blankPage" title="Insert blank page after" aria-label="Insert blank page"></button>
           <button id="pgInsert" class="icon" data-icon="insertPdf" title="Insert pages from PDF…" aria-label="Insert pages from PDF"></button>
           <button id="pgExtract" class="icon" data-icon="extract" title="Save selected pages as…" aria-label="Extract pages"></button>
+          <button id="pgSplit" class="icon" data-icon="split" title="Split into files…" aria-label="Split into files"></button>
           <button id="pgDelete" class="icon danger" data-icon="trash" title="Delete (Del)" aria-label="Delete pages"></button>
         </div>
         <div id="selectionInfo" class="selection-info muted" aria-live="polite"></div>
@@ -117,6 +119,7 @@
             <p class="muted">View, annotate, fill, and rearrange PDFs. Files stay on this device.</p>
             <button id="btnOpenEmpty" class="primary">Open a PDF</button>
             <p class="hint muted">or drop a file anywhere · Ctrl+O</p>
+            <button id="btnMergeEmpty" class="text-button">Merge PDFs…</button>
           </div>
         </section>
         <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyLabel"></span></div>
@@ -146,6 +149,36 @@
         </div>
         <dl id="propsFacts" class="facts"></dl>
         <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Apply</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="splitDialog">
+      <form method="dialog" novalidate>
+        <h2>Split into files</h2>
+        <p class="muted">Save the pages as separate PDFs in a folder you choose.</p>
+        <div class="choices" role="radiogroup" aria-label="How to split">
+          <label class="choice">
+            <input type="radio" name="splitMode" value="every" checked />
+            Every <input type="number" id="splitEvery" min="1" step="1" value="1" aria-label="Pages per file" />
+            <span id="splitEveryUnit">page</span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="splitMode" value="ranges" />
+            Page ranges <input id="splitRanges" placeholder="1-3, 4, 5-" autocomplete="off" spellcheck="false" aria-label="Page ranges, one file each" />
+          </label>
+        </div>
+        <p id="splitPreview" class="preview muted" aria-live="polite"></p>
+        <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary" id="splitOk">Choose folder…</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="mergeDialog">
+      <form method="dialog">
+        <h2>Merge PDFs</h2>
+        <p class="muted">The files are combined in this order into a new document.</p>
+        <ol id="mergeList" class="file-list" aria-label="Files to merge"></ol>
+        <button type="button" id="mergeAdd" class="text-button">Add files…</button>
+        <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary" id="mergeOk">Merge</button></menu>
       </form>
     </dialog>
 

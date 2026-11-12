@@ -10,6 +10,7 @@ import {
 } from "pdfjs-dist/web/pdf_viewer.mjs";
 import * as files from "./files";
 import { DocHistory } from "./history";
+import { icon } from "./icons";
 import * as ops from "./pageops";
 import { PDFJS_ASSETS, openPdf, type PDFDocumentProxy } from "./pdfjs";
 import { printPdf } from "./print";
@@ -76,9 +77,12 @@ interface EditorStates {
   hasSelectedEditor?: boolean;
 }
 
+/** One file in the merge list: a picked file, or the open document as it is now. */
+type MergeEntry = { name: string; file: files.OpenedFile } | { name: string; file: null };
+
 interface LoadOptions {
   /** A different file (resets history, save target, password). */
-  fresh?: { name: string; target: files.SaveTarget | null };
+  fresh?: { name: string; target: files.SaveTarget | null; password?: string };
   page?: number;
   selection?: number[];
 }
@@ -208,7 +212,7 @@ export class App {
     let opened;
     try {
       opened = await openPdf(bytes, {
-        password: opts.fresh ? undefined : this.#password,
+        password: opts.fresh ? opts.fresh.password : this.#password,
         askPassword: (incorrect) => this.#askPassword(incorrect),
       });
     } catch (e) {
@@ -269,12 +273,14 @@ export class App {
     return true;
   }
 
-  async #askPassword(incorrect: boolean): Promise<string | null> {
+  async #askPassword(incorrect: boolean, name?: string): Promise<string | null> {
     const dialog = $<HTMLDialogElement>("passwordDialog");
     const input = $<HTMLInputElement>("passwordInput");
     $("passwordMsg").textContent = incorrect
       ? "That password is not correct. Try again."
-      : "This PDF is protected. Enter its password to open it.";
+      : name
+        ? `${name} is protected. Enter its password.`
+        : "This PDF is protected. Enter its password to open it.";
     input.value = "";
     const result = await showDialog(dialog);
     return result === "ok" ? input.value : null;
@@ -357,20 +363,25 @@ export class App {
   }
 
   /**
-   * Assemble pages from the document as it would be saved now. pdf.js's page
+   * Run `fn` on the document as it would be saved now. pdf.js's page
    * assembler takes new annotations from the pending edits but not changed
    * form values, so when anything is pending it works from the saved bytes
    * (`current`, or computed here) instead of the open document.
    */
-  async #assemble(plan: ops.PlanPage[], extras: Uint8Array[] = [], current?: Uint8Array) {
+  async #withSavedDoc<R>(fn: (doc: ops.AssemblerDoc) => Promise<R>, current?: Uint8Array): Promise<R> {
     const doc = this.#requireDoc();
-    if (doc.annotationStorage.size === 0) return ops.assemble(doc, plan, extras);
+    if (doc.annotationStorage.size === 0) return fn(doc);
     const { doc: saved } = await openPdf(current ?? (await this.currentBytes()), { password: this.#password });
     try {
-      return await ops.assemble(saved, plan, extras);
+      return await fn(saved);
     } finally {
       await saved.loadingTask.destroy();
     }
+  }
+
+  /** Assemble pages from the document as it would be saved now (see #withSavedDoc). */
+  #assemble(plan: ops.PlanPage[], extras: ops.ExtraDoc[] = [], current?: Uint8Array) {
+    return this.#withSavedDoc((doc) => ops.assemble(doc, plan, extras), current);
   }
 
   rotate(delta: number) {
@@ -471,6 +482,225 @@ export class App {
       const saved = await files.saveAs(files.withSuffix(this.fileName || "document", `-${label}`), bytes);
       if (saved !== undefined) toast(`Saved ${plural(pages.length, "page")} to a new file`);
     });
+  }
+
+  // -------------------------------------------------------- split / merge
+
+  /** Save the document as several PDFs, one per page range, in a folder the user picks. */
+  async split() {
+    const doc = this.doc;
+    if (!doc || this.#busy) return;
+    const n = doc.numPages;
+    const ranges = await this.#askSplit(n);
+    if (!ranges) return;
+    let dest;
+    try {
+      dest = await files.saveToFolder(ops.splitNames(this.fileName, ranges, n));
+    } catch (e) {
+      return toast(errorText(e), "error");
+    }
+    if (!dest) return;
+    const existing = dest.files.filter((f) => f.exists).map((f) => f.name);
+    if (
+      existing.length &&
+      !(await confirmDialog(
+        "Replace existing files?",
+        `${listNames(existing)} ${existing.length === 1 ? "is" : "are"} already in ${dest.folder}.`,
+        "Replace",
+      ))
+    ) {
+      return;
+    }
+    const parts = dest.files;
+    await this.#withBusy("Splitting…", async () => {
+      await this.#withSavedDoc(async (source) => {
+        for (const [k, range] of ranges.entries()) {
+          $("busyLabel").textContent = `Splitting… ${k + 1}/${ranges.length}`;
+          await parts[k].write(await ops.assemble(source, ops.rangePlan(range)));
+        }
+      });
+      toast(`Saved ${plural(ranges.length, "file")} in ${dest.folder}`);
+    });
+  }
+
+  /** The split dialog: the page ranges to save, or null if cancelled. */
+  async #askSplit(n: number): Promise<ops.PageRange[] | null> {
+    const dialog = $<HTMLDialogElement>("splitDialog");
+    const every = $<HTMLInputElement>("splitEvery");
+    const typed = $<HTMLInputElement>("splitRanges");
+    const preview = $("splitPreview");
+    const ok = $<HTMLButtonElement>("splitOk");
+    const radio = (mode: string) => dialog.querySelector<HTMLInputElement>(`input[name="splitMode"][value="${mode}"]`)!;
+    const ranges = () =>
+      radio("every").checked ? ops.everyRanges(n, Number(every.value)) : ops.parseRanges(typed.value, n);
+    const update = () => {
+      $("splitEveryUnit").textContent = every.value === "1" ? "page" : "pages";
+      try {
+        const names = ops.splitNames(this.fileName, ranges(), n);
+        preview.textContent = `${plural(names.length, "file")}: ${summarise(names)}`;
+        preview.classList.remove("error");
+        ok.disabled = false;
+      } catch (e) {
+        preview.textContent = errorText(e);
+        // Nothing typed yet is a prompt, not a mistake.
+        preview.classList.toggle("error", radio("every").checked || typed.value.trim() !== "");
+        ok.disabled = true;
+      }
+    };
+    const ac = new AbortController();
+    const on = (el: HTMLElement, type: string, fn: (e: Event) => void) => el.addEventListener(type, fn, { signal: ac.signal });
+    for (const [input, mode] of [[every, "every"], [typed, "ranges"]] as const) {
+      const choose = () => {
+        radio(mode).checked = true;
+        update();
+      };
+      on(input, "input", choose);
+      on(input, "focus", choose);
+    }
+    for (const mode of ["every", "ranges"]) on(radio(mode), "change", update);
+    // Enter in a field splits; a form's implicit submission would press Cancel, its first button.
+    on(dialog, "keydown", (e) => {
+      const ke = e as KeyboardEvent;
+      if (ke.key !== "Enter" || !(ke.target as HTMLElement).matches("input")) return;
+      ke.preventDefault();
+      if (!ok.disabled) ok.click();
+    });
+    // Start on the chosen mode's button: focusing a field would switch to its mode.
+    for (const mode of ["every", "ranges"]) radio(mode).autofocus = radio(mode).checked;
+    update();
+    try {
+      return (await showDialog(dialog)) === "ok" ? ranges() : null;
+    } finally {
+      ac.abort();
+    }
+  }
+
+  /**
+   * Combine PDFs into a new, unsaved document: the files the user picks and,
+   * unless they take it out of the list, the open document as it is now.
+   */
+  async merge() {
+    if (this.#busy) return;
+    let picked: files.OpenedFile[];
+    try {
+      picked = await files.pickPdfs(true);
+    } catch (e) {
+      return toast(errorText(e), "error");
+    }
+    if (!picked.length) return;
+    const entries: MergeEntry[] = picked.map((file) => ({ name: file.name, file }));
+    if (this.doc) entries.unshift({ name: this.fileName || "Untitled", file: null });
+    const order = await this.#askMerge(entries);
+    if (!order || !(await this.confirmDiscard())) return;
+
+    await this.#withBusy("Merging…", async () => {
+      const sources: { name: string; bytes: Uint8Array; password?: string }[] = [];
+      for (const entry of order) {
+        sources.push(
+          entry.file
+            ? { name: entry.name, bytes: entry.file.bytes }
+            : { name: entry.name, bytes: await this.currentBytes(), password: this.#password },
+        );
+      }
+      // Open each file to count its pages, asking for passwords where needed.
+      // The first is the base the others are added to.
+      const opened = [];
+      try {
+        for (const s of sources) {
+          let result;
+          try {
+            result = await openPdf(s.bytes, {
+              password: s.password,
+              askPassword: (incorrect) => this.#askPassword(incorrect, s.name),
+            });
+          } catch (e) {
+            if (e instanceof Error && e.name === "PasswordException") return; // password not given
+            throw new ops.UserError(`${s.name}: ${errorText(e)}`);
+          }
+          opened.push(result);
+        }
+        const [base, ...rest] = opened;
+        const extras = rest.map((r, k) => ({ data: sources[k + 1].bytes, password: r.password }));
+        const merged = await ops.assemble(base.doc, ops.mergePlan(opened.map((r) => r.doc.numPages)), extras);
+        const name = files.withSuffix(order[0].name, "-merged");
+        if (await this.#load(merged, { fresh: { name, target: null, password: base.password } })) {
+          this.#docDirty = true; // a new document, not saved anywhere yet
+          this.#renderTitle();
+          toast(`Merged ${plural(order.length, "file")} into ${plural(this.pageCount, "page")}`);
+        }
+      } finally {
+        await Promise.all(opened.map((r) => r.doc.loadingTask.destroy()));
+      }
+    });
+  }
+
+  /** The merge dialog: the files in the order to merge them, or null if cancelled. */
+  async #askMerge(entries: MergeEntry[]): Promise<MergeEntry[] | null> {
+    const dialog = $<HTMLDialogElement>("mergeDialog");
+    const list = $("mergeList");
+    const ok = $<HTMLButtonElement>("mergeOk");
+    const items = [...entries];
+    const button = (act: string, label: string, name: string, disabled: boolean) =>
+      `<button type="button" class="icon" data-act="${act}" title="${label}" aria-label="${label}: ${escapeHtml(name)}"${disabled ? " disabled" : ""}>${icon(act === "remove" ? "close" : act)}</button>`;
+    const render = (focus?: { index: number; act: string }) => {
+      list.innerHTML = items
+        .map(
+          (e, i) =>
+            `<li data-index="${i}"><span class="file-name" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</span>` +
+            (e.file ? "" : '<span class="tag muted">open document</span>') +
+            button("up", "Move up", e.name, i === 0) +
+            button("down", "Move down", e.name, i === items.length - 1) +
+            button("remove", "Remove", e.name, false) +
+            "</li>",
+        )
+        .join("");
+      ok.disabled = items.length < 2;
+      ok.title = items.length < 2 ? "Add at least two files" : "";
+      if (!focus) return;
+      const row = list.querySelector(`li[data-index="${Math.min(focus.index, items.length - 1)}"]`);
+      const target =
+        row?.querySelector<HTMLButtonElement>(`button[data-act="${focus.act}"]:not(:disabled)`) ??
+        row?.querySelector<HTMLButtonElement>("button:not(:disabled)") ??
+        $("mergeAdd");
+      target.focus();
+    };
+    const ac = new AbortController();
+    list.addEventListener(
+      "click",
+      (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-act]");
+        if (!btn) return;
+        const i = Number(btn.closest("li")!.dataset.index);
+        const act = btn.dataset.act!;
+        if (act === "remove") {
+          items.splice(i, 1);
+          return render({ index: i, act });
+        }
+        const j = act === "up" ? i - 1 : i + 1;
+        [items[i], items[j]] = [items[j], items[i]];
+        render({ index: j, act });
+      },
+      { signal: ac.signal },
+    );
+    $("mergeAdd").addEventListener(
+      "click",
+      async () => {
+        try {
+          const more = await files.pickPdfs(true);
+          items.push(...more.map((file) => ({ name: file.name, file })));
+          render();
+        } catch (e) {
+          toast(errorText(e), "error");
+        }
+      },
+      { signal: ac.signal },
+    );
+    render();
+    try {
+      return (await showDialog(dialog)) === "ok" && items.length >= 2 ? items : null;
+    } finally {
+      ac.abort();
+    }
   }
 
   async editProperties() {
@@ -801,6 +1031,8 @@ export class App {
     on("btnSidebar", () => this.#setSidebar(!$("app").classList.contains("sidebar-open")));
     on("btnOpen", () => this.open());
     on("btnOpenEmpty", () => this.open());
+    on("btnMerge", () => this.merge());
+    on("btnMergeEmpty", () => this.merge());
     on("btnSave", () => this.save());
     on("btnSaveAs", () => this.save(true));
     on("btnPrint", () => this.print());
@@ -819,6 +1051,7 @@ export class App {
     on("pgBlank", () => this.insertBlank());
     on("pgInsert", () => this.pickAndInsert());
     on("pgExtract", () => this.extractPages());
+    on("pgSplit", () => this.split());
     on("pgDelete", () => this.deletePages());
 
     for (const b of document.querySelectorAll<HTMLElement>(".toolbar .tool")) {
@@ -1024,6 +1257,21 @@ function normalizeHex(color: string) {
   if (!m) return "#000000";
   const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join("") : m[1];
   return `#${h.toLowerCase()}`;
+}
+
+/** "a.pdf", "a.pdf and b.pdf", "a.pdf, b.pdf and 3 other files". */
+function listNames(names: string[]) {
+  if (names.length <= 3) return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `${names.slice(0, 2).join(", ")} and ${plural(names.length - 2, "other file")}`;
+}
+
+/** A few file names to stand for a longer list. */
+function summarise(names: string[]) {
+  return names.length <= 3 ? names.join(", ") : `${names[0]}, ${names[1]}, …, ${names.at(-1)}`;
+}
+
+function escapeHtml(text: string) {
+  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
 function errorText(e: unknown) {

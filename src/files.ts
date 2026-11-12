@@ -54,4 +54,19 @@ export async function saveAs(name: string, bytes: Uint8Array): Promise<SaveTarge
   return target;
 }
 
-export const withSuffix = (name: string, suffix: string) => name.replace(/(\.pdf)?$/i, `${suffix}.pdf`);
+export interface FolderTarget extends SaveTarget {
+  /** A file of that name is already there. */
+  exists: boolean;
+}
+
+/** Ask for a folder to save files named `names` in. Returns undefined if cancelled. */
+export async function saveToFolder(names: string[]): Promise<{ folder: string; files: FolderTarget[] } | undefined> {
+  const chosen = await desktop.saveToFolder(names);
+  if (!chosen) return undefined;
+  return {
+    folder: chosen.folder.name,
+    files: chosen.files.map((f) => ({ ...pathTarget(f.name, f.path), exists: f.exists })),
+  };
+}
+
+export const withSuffix =(name: string, suffix: string) => name.replace(/(\.pdf)?$/i, `${suffix}.pdf`);
