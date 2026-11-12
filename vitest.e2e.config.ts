@@ -12,5 +12,7 @@ export default defineConfig({
     testTimeout: 60_000,
     hookTimeout: 60_000,
     retry: process.env.CI ? 1 : 0,
+    // In CI, report each test as it finishes; the default waits for a whole file.
+    reporters: process.env.CI ? ["verbose"] : ["default"],
   },
 });
