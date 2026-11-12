@@ -10,10 +10,14 @@
 $ErrorActionPreference = "Stop"
 if ($args.Count -eq 0) { throw "Usage: windows-unelevated.ps1 <command> [args...]" }
 
-if (-not (Get-Command gsudo -ErrorAction SilentlyContinue)) {
+# Call gsudo by path: Chocolatey adds it to the machine PATH, which later steps
+# of the same job don't see, and its PowerShell module shadows the name.
+$gsudo = "C:\tools\gsudo\Current\gsudo.exe"
+if (-not (Test-Path $gsudo)) {
   choco install gsudo -y --no-progress | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "Could not install gsudo." }
 }
+if (-not (Test-Path $gsudo)) { throw "gsudo is not at $gsudo after installing it." }
 
 # Let the non-elevated process write to the checkout (Vitest's cache, build output).
 icacls "$env:GITHUB_WORKSPACE" /grant "Everyone:(OI)(CI)F" /Q | Out-Host
@@ -32,5 +36,5 @@ $lines += "exit `$LASTEXITCODE"
 $script = Join-Path $env:RUNNER_TEMP "unelevated-$([guid]::NewGuid()).ps1"
 Set-Content -Path $script -Value $lines -Encoding utf8
 
-gsudo --integrity Medium pwsh -NoProfile -File $script
+& $gsudo --integrity Medium pwsh -NoProfile -File $script
 exit $LASTEXITCODE
