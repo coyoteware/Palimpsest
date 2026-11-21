@@ -35,8 +35,16 @@ test("form JavaScript calculates and formats fields, and the result is saved", a
     throw e;
   };
 
-  // A keystroke script: "a" only takes numbers.
-  await app.type(field("a"), "2x");
+  // A keystroke script: "a" only takes numbers. pdf.js cancels each keystroke and writes back
+  // what the sandbox accepts, a moment later; a key typed before that is judged against the old
+  // value. So type a key at a time, as a person does, each after the last one's answer.
+  await app.type(field("a"), "2");
+  await poll(() => app.value(field("a")))
+    .toBe("2")
+    .catch(explain);
+  const answers = await app.exec<number>("return window.__fromSandbox.length");
+  await app.type(field("a"), "x");
+  await poll(() => app.exec<number>("return window.__fromSandbox.length")).toBeGreaterThan(answers);
   await poll(() => app.value(field("a")))
     .toBe("2")
     .catch(explain);
