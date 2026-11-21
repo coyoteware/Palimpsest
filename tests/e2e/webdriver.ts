@@ -217,6 +217,11 @@ export class Session {
     return this.exec<boolean>("return !!document.querySelector(arguments[0])?.checkVisibility()", css);
   }
 
+  /** Resize the window (CSS pixels). */
+  async resize(width: number, height: number) {
+    await this.#cmd("POST", "/window/rect", { width, height });
+  }
+
   /** A PNG of the window, for looking at a failure. */
   async screenshot() {
     return Buffer.from(await this.#cmd<string>("GET", "/screenshot"), "base64");
