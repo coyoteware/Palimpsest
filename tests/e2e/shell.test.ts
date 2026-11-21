@@ -185,11 +185,16 @@ test("a print the shell hands to the native dialog keeps its pages until printin
   const app = await launch(await sampleIn(workDir()));
   await opened(app);
 
-  await app.click("#btnPrint");
+  const print = async () => {
+    await app.click("#btnPrint");
+    await poll(() => app.exec("return document.querySelector('#printDialog').open")).toBe(true);
+    await app.click("#printOk");
+  };
+  await print();
   await poll(() => shellLog().filter((e) => e.print).length).toBe(1);
   expect(await app.count("#printContainer .print-page")).toBe(5); // the dialog is still reading them
   // Printing again replaces them rather than adding to them.
-  await app.click("#btnPrint");
+  await print();
   await poll(() => shellLog().filter((e) => e.print).length).toBe(2);
   expect(await app.count("#printContainer .print-page")).toBe(5);
 

@@ -252,6 +252,27 @@
       </form>
     </dialog>
 
+    <dialog id="printDialog" aria-labelledby="printTitle">
+      <form method="dialog">
+        <h2 id="printTitle">Print</h2>
+        <fieldset class="choices">
+          <legend>Pages</legend>
+          <label class="choice"><input type="radio" name="printPages" value="all" checked /> All <span id="printAllCount" class="muted"></span></label>
+          <label class="choice"><input type="radio" name="printPages" value="current" /> Current page <span id="printCurrentPage" class="muted"></span></label>
+          <label class="choice" id="printSelectedChoice"><input type="radio" name="printPages" value="selected" /> Selected pages <span id="printSelectedCount" class="muted"></span></label>
+          <label class="choice"><input type="radio" name="printPages" value="range" /> Pages <input id="printRange" placeholder="1-3, 5, 8-" autocomplete="off" spellcheck="false" aria-label="Pages to print" /></label>
+        </fieldset>
+        <fieldset class="choices">
+          <legend>Size</legend>
+          <label class="choice"><input type="radio" name="printSize" value="fit" checked /> Fit to the paper</label>
+          <label class="choice"><input type="radio" name="printSize" value="actual" /> Actual size</label>
+        </fieldset>
+        <label class="check print-comments"><input type="checkbox" id="printComments" checked /> Print comments and markup</label>
+        <p id="printPreview" class="preview muted" aria-live="polite"></p>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="printOk">Print</button></menu>
+      </form>
+    </dialog>
+
     <dialog id="noteDialog" aria-labelledby="noteTitle">
       <form method="dialog">
         <h2 id="noteTitle">Add note</h2>

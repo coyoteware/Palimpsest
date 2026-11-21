@@ -1,7 +1,7 @@
 /** Shapes, text markup and Fill & Sign: what they draw, and what is saved. */
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { answer, clickPage, launch, onPage, opened, poll, sampleIn, savedTo, useApp, workDir } from "./harness";
+import { answer, clickPage, launch, onPage, opened, poll, sampleIn, savedTo, shellLog, useApp, workDir } from "./harness";
 import { Key, type Session } from "./webdriver";
 
 useApp();
@@ -239,4 +239,74 @@ test("sticky notes, and the comments panel: listed, shown, edited, deleted", asy
   const annots = (await saveAs(app, dir)).pages[0].annotations;
   expect(annots.find((a) => a.subtype === "Text")).toMatchObject({ contents: "Figures checked", author: "Ada" });
   expect(annots.map((a) => a.subtype)).toEqual(expect.arrayContaining(["Text", "Popup", "Ink"]));
+});
+
+test("print: which pages, with or without comments, fit or actual size", async () => {
+  const { app } = await openSample();
+  const printed = () => app.count("#printContainer .print-page");
+  const printCount = () => shellLog().filter((e) => e.print).length;
+  const open = async () => {
+    await app.press(Key.Control, "p");
+    await poll(() => app.exec("return document.querySelector('#printDialog').open")).toBe(true);
+  };
+  /** Is there red in the printed image of the first printed page? */
+  const hasRed = () =>
+    app.execAsync<boolean>(
+      `const done = arguments[arguments.length - 1];
+       const img = document.querySelector("#printContainer .print-page img");
+       img.decode().then(() => {
+         const c = document.createElement("canvas");
+         c.width = img.naturalWidth; c.height = img.naturalHeight;
+         const ctx = c.getContext("2d");
+         ctx.drawImage(img, 0, 0);
+         const d = ctx.getImageData(0, 0, c.width, c.height).data;
+         for (let i = 0; i < d.length; i += 4 * 7) if (d[i] > 200 && d[i + 1] < 100 && d[i + 2] < 100) return done(true);
+         done(false);
+       });`,
+    );
+
+  // A red box drawn on page 2, to print with and without.
+  await app.click(tool("shape"));
+  await app.fill("#optThickness", "12");
+  const a = await onPage(app, 2, 150, 300);
+  const b = await onPage(app, 2, 400, 450);
+  await app.drag([a, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], b]);
+  await poll(() => app.count(".inkEditor")).toBe(1);
+  await app.click(tool("none"));
+  await poll(() => app.exec("return window.palimpsest.page")).toBe(2);
+
+  await open();
+  expect(await app.text("#printPreview")).toBe("5 pages to print");
+  // Only the current page.
+  await app.click('#printDialog input[value="current"]');
+  expect(await app.text("#printPreview")).toBe("1 page to print");
+  await app.click("#printOk");
+  await poll(printCount).toBe(1);
+  expect(await printed()).toBe(1);
+  expect(await hasRed()).toBe(true);
+
+  // Without comments and markup.
+  await open();
+  await app.click("#printComments");
+  await app.click("#printOk");
+  await poll(printCount).toBe(2);
+  expect(await hasRed()).toBe(false);
+
+  // A range: mistakes are explained and stop the print; pages print in the order given.
+  await open();
+  await app.fill("#printRange", "9");
+  await poll(() => app.text("#printPreview")).toBe("There is no page 9; the document has 5 pages.");
+  expect(await app.exec("return document.querySelector('#printOk').disabled")).toBe(true);
+  await app.fill("#printRange", "4-5, 1");
+  await poll(() => app.text("#printPreview")).toBe("3 pages to print");
+  await app.click('#printDialog input[value="actual"]');
+  await app.click("#printOk");
+  await poll(printCount).toBe(3);
+  expect(await printed()).toBe(3);
+  expect(await app.attr("#printContainer .print-page img", "style")).toMatch(/width: 612pt/);
+  // Cancel prints nothing.
+  await open();
+  await app.click('#printDialog button[value="cancel"]');
+  await new Promise((r) => setTimeout(r, 300));
+  expect(printCount()).toBe(3);
 });

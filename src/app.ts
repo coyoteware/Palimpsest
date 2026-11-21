@@ -23,7 +23,7 @@ import { NavHistory, type Place } from "./navhistory";
 import * as ops from "./pageops";
 import { collectComments, commentKind, Panels, renderComments, useIcons, type Attachment, type CommentItem } from "./panels";
 import { PDFJS_ASSETS, openPdf, type PDFDocumentProxy } from "./pdfjs";
-import { printPdf } from "./print";
+import { printPdf, type PrintOptions } from "./print";
 import { askSignature, forgetSignatures, savedSignatures, type SavedSignature } from "./signatures";
 import { Thumbnails } from "./thumbnails";
 
@@ -480,13 +480,82 @@ export class App {
     });
   }
 
+  /** Print, after asking which pages and how (the print dialog). */
   async print() {
     if (!this.doc || this.#busy) return;
+    const opts = await this.#askPrint();
+    if (!opts) return;
     await this.#withBusy("Preparing to print…", async () => {
-      await printPdf(await this.currentBytes(), this.#password, (done, total) => {
-        $("busyLabel").textContent = `Preparing to print… ${done}/${total}`;
-      });
+      await printPdf(
+        await this.currentBytes(),
+        this.#password,
+        (done, total) => {
+          $("busyLabel").textContent = `Preparing to print… ${done}/${total}`;
+        },
+        opts,
+      );
     });
+  }
+
+  /** The print dialog: what to print, or null if cancelled. */
+  async #askPrint(): Promise<PrintOptions | null> {
+    const n = this.pageCount;
+    const dialog = $<HTMLDialogElement>("printDialog");
+    const range = $<HTMLInputElement>("printRange");
+    const preview = $("printPreview");
+    const ok = $<HTMLButtonElement>("printOk");
+    const radio = (name: string, value: string) => dialog.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`)!;
+    const selection = this.thumbs.selection;
+    const label = (i: number) => this.#labels?.[i] ?? String(i + 1);
+    $("printAllCount").textContent = `(${plural(n, "page")})`;
+    $("printCurrentPage").textContent = `(${label(this.page - 1)})`;
+    $("printSelectedChoice").hidden = selection.length < 2;
+    $("printSelectedCount").textContent = `(${plural(selection.length, "page")})`;
+    if (radio("printPages", "selected").checked && selection.length < 2) radio("printPages", "all").checked = true;
+    const chosen = (name: string) => dialog.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)!.value;
+    const pages = (): number[] => {
+      switch (chosen("printPages")) {
+        case "current":
+          return [this.page - 1];
+        case "selected":
+          return selection;
+        case "range":
+          return ops.parseRanges(range.value, n).flatMap(([a, b]) => Array.from({ length: b - a + 1 }, (_, k) => a + k));
+        default:
+          return Array.from({ length: n }, (_, i) => i);
+      }
+    };
+    const update = () => {
+      try {
+        preview.textContent = `${plural(pages().length, "page")} to print`;
+        preview.classList.remove("error");
+        ok.disabled = false;
+      } catch (e) {
+        preview.textContent = errorText(e);
+        preview.classList.toggle("error", range.value.trim() !== "");
+        ok.disabled = true;
+      }
+    };
+    const ac = new AbortController();
+    dialog.addEventListener("change", update, { signal: ac.signal });
+    const chooseRange = () => {
+      radio("printPages", "range").checked = true;
+      update();
+    };
+    range.addEventListener("input", chooseRange, { signal: ac.signal });
+    range.addEventListener("focus", chooseRange, { signal: ac.signal });
+    for (const r of dialog.querySelectorAll<HTMLInputElement>('input[name="printPages"]')) r.autofocus = r.checked;
+    update();
+    try {
+      if ((await showDialog(dialog)) !== "ok") return null;
+      return {
+        pages: pages(),
+        annotations: $<HTMLInputElement>("printComments").checked,
+        size: chosen("printSize") as PrintOptions["size"],
+      };
+    } finally {
+      ac.abort();
+    }
   }
 
   // ----------------------------------------------------------- page ops
