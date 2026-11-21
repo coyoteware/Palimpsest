@@ -7,11 +7,17 @@ import {
   PDFFindController,
   PDFLinkService,
   PDFViewer,
+  ScrollMode,
+  SpreadMode,
 } from "pdfjs-dist/web/pdf_viewer.mjs";
+import { desktop } from "./desktop";
 import * as files from "./files";
 import { DocHistory } from "./history";
 import { icon } from "./icons";
+import { checkRadio, closeMenus, menuIsOpen, wireMenu } from "./menu";
+import { NavHistory, type Place } from "./navhistory";
 import * as ops from "./pageops";
+import { Panels, type Attachment } from "./panels";
 import { PDFJS_ASSETS, openPdf, type PDFDocumentProxy } from "./pdfjs";
 import { printPdf } from "./print";
 import { Thumbnails } from "./thumbnails";
@@ -90,6 +96,21 @@ interface LoadOptions {
   selection?: number[];
 }
 
+/** Page layouts in the View menu ↔ pdf.js scroll and spread modes. */
+const SCROLL_MODES = { vertical: ScrollMode.VERTICAL, page: ScrollMode.PAGE, wrapped: ScrollMode.WRAPPED, horizontal: ScrollMode.HORIZONTAL };
+const SPREAD_MODES = { none: SpreadMode.NONE, odd: SpreadMode.ODD, even: SpreadMode.EVEN };
+type ScrollName = keyof typeof SCROLL_MODES;
+type SpreadName = keyof typeof SPREAD_MODES;
+const nameOf = <K extends string>(modes: Record<K, number>, mode: number) =>
+  (Object.entries(modes) as [K, number][]).find(([, m]) => m === mode)?.[0];
+
+/** Where the view was before presentation mode, to go back to. */
+interface ViewBeforePresenting {
+  scroll: number;
+  spread: number;
+  scale: string;
+}
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const dialogOpen = () => document.querySelector("dialog[open]") !== null;
 
@@ -103,8 +124,14 @@ export class App {
   readonly viewer: PDFViewer;
   readonly thumbs: Thumbnails;
   readonly history = new DocHistory();
+  /** Back / forward through link, bookmark and page-number jumps. */
+  readonly nav: NavHistory;
+  readonly panels: Panels;
 
   doc: PDFDocumentProxy | null = null;
+  /** Page labels ("iv", "A-3"), or null when the pages are just numbered. */
+  #labels: string[] | null = null;
+  #presenting: ViewBeforePresenting | null = null;
   fileName = "";
   /** Where Save writes; null until the document has a file to go back to. */
   target: files.SaveTarget | null = null;
@@ -115,7 +142,7 @@ export class App {
   #tool: Tool = "none";
   #ui: UIManager | null = null;
   #editor: EditorStates = {};
-  #pendingView: { page: number; scale: string } | null = null;
+  #pendingView: { page: number; scale: string; rotation: number } | null = null;
   #params: ToolParams = {
     textColor: "#000000",
     textSize: 12,
@@ -150,6 +177,12 @@ export class App {
       ...({ enableHighlightFloatingButton: true } as object),
     });
     this.linkService.setViewer(this.viewer);
+    this.nav = new NavHistory(
+      (place) => this.#goTo(place),
+      () => this.#renderNav(),
+    );
+    // PDFLinkService records link and bookmark jumps through this.
+    this.linkService.setHistory(this.nav as unknown as Parameters<PDFLinkService["setHistory"]>[0]);
 
     this.thumbs = new Thumbnails($("thumbs"), {
       navigate: (i) => (this.viewer.currentPageNumber = i + 1),
@@ -158,12 +191,20 @@ export class App {
       selectionChanged: (sel) => this.#renderSelection(sel),
     });
 
+    this.panels = new Panels(this.linkService, this.viewer, {
+      saveAttachment: (file) => void this.saveAttachment(file),
+      tabsChanged: () => this.#showPanel(readPref("panel") ?? "panelPages", false),
+    });
+
     this.#wireViewerEvents();
     this.#wireToolbar();
     this.#wireFind();
     this.#wireKeyboard();
     this.#wireDragAndDrop();
     this.#wireDialogs();
+    this.#wireViewMenu();
+    this.#wireSidebar();
+    this.#wirePresentation();
     container.addEventListener("wheel", (e) => this.#onWheel(e), { passive: false });
     window.addEventListener("beforeunload", (e) => {
       if (!this.dirty) return;
@@ -251,7 +292,10 @@ export class App {
     const view = (this.#pendingView = {
       page: Math.min(opts.page ?? 1, doc.numPages),
       scale: opts.fresh ? "auto" : this.viewer.currentScaleValue || "auto",
+      rotation: opts.fresh ? 0 : this.viewer.pagesRotation,
     });
+    this.nav.reset();
+    this.#labels = null;
     const storage = doc.annotationStorage as unknown as {
       onSetModified: (() => void) | null;
       onResetModified: (() => void) | null;
@@ -267,12 +311,16 @@ export class App {
 
     this.viewer.setDocument(doc);
     this.linkService.setDocument(doc, null);
-    void this.thumbs.setDocument(doc, { current: view.page - 1, selection: opts.selection });
+    const labels = await pageLabels(doc);
+    if (this.doc !== doc) return false; // another load overtook this one
+    this.#labels = labels;
+    this.viewer.setPageLabels(labels);
+    void this.thumbs.setDocument(doc, { current: view.page - 1, selection: opts.selection, labels });
+    void this.panels.setDocument(doc);
     if (old) await old.loadingTask.destroy();
 
     $("app").classList.remove("no-doc");
-    $("pageCount").textContent = `/ ${doc.numPages}`;
-    $<HTMLInputElement>("pageNumber").value = String(view.page);
+    this.#renderPageNumber(view.page);
     this.#renderTitle();
     this.#renderTool();
     this.#renderUndo();
@@ -938,6 +986,43 @@ export class App {
         : "Redo (Ctrl+Shift+Z)";
   }
 
+  /** The page box: the page's label (or number), and where it is in the document. */
+  #renderPageNumber(pageNumber: number) {
+    const n = this.pageCount;
+    const label = this.#labels?.[pageNumber - 1];
+    $<HTMLInputElement>("pageNumber").value = label ?? String(pageNumber);
+    $("pageCount").textContent = label !== undefined ? `(${pageNumber} of ${n})` : `/ ${n}`;
+    $<HTMLButtonElement>("btnPrev").disabled = pageNumber <= 1;
+    $<HTMLButtonElement>("btnNext").disabled = pageNumber >= n;
+  }
+
+  /** Go to what was typed in the page box: a page label, else a page number. */
+  goToTyped(typed: string) {
+    const value = typed.trim();
+    const byLabel = this.#labels?.indexOf(value) ?? -1;
+    const n = byLabel >= 0 ? byLabel + 1 : Number.parseInt(value, 10);
+    if (n >= 1 && n <= this.pageCount && String(n) !== "NaN") {
+      if (n !== this.page) this.linkService.goToPage(n);
+      else this.#renderPageNumber(n);
+      return true;
+    }
+    this.#renderPageNumber(this.page);
+    return false;
+  }
+
+  #renderNav() {
+    $<HTMLButtonElement>("btnBack").disabled = !this.nav.canGoBack;
+    $<HTMLButtonElement>("btnForward").disabled = !this.nav.canGoForward;
+  }
+
+  #goTo(place: Place) {
+    this.viewer.scrollPageIntoView({
+      pageNumber: place.pageNumber,
+      destArray: place.top === undefined ? undefined : [null, { name: "XYZ" }, place.left ?? null, place.top, null],
+      allowNegativeOffset: true,
+    });
+  }
+
   #renderSelection(sel: number[]) {
     $("selectionInfo").textContent = sel.length > 1 ? `${sel.length} pages selected` : "";
   }
@@ -954,6 +1039,77 @@ export class App {
       custom.textContent = `${Math.round(scale * 100)}%`;
       select.value = "custom";
     }
+  }
+
+  async saveAttachment(file: Attachment) {
+    try {
+      const content = await file.content();
+      if (!content) throw new Error(`${file.name} is empty or could not be read.`);
+      const saved = await files.saveAs(file.name, content, "any");
+      if (saved) toast(`Saved ${saved.name}`);
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  }
+
+  /** Show a sidebar panel; one whose tab is hidden (nothing in it) falls back to Pages. */
+  #showPanel(id: string, remember = true) {
+    const tabs = [...document.querySelectorAll<HTMLElement>("#sidebar [role=tab]")];
+    const tab = tabs.find((t) => t.dataset.panel === id && !t.hidden) ?? tabs[0];
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      $(t.dataset.panel!).hidden = !on;
+    }
+    if (remember) writePref("panel", tab.dataset.panel!);
+  }
+
+  #wireSidebar() {
+    const tablist = document.querySelector<HTMLElement>("#sidebar [role=tablist]")!;
+    tablist.addEventListener("click", (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLElement>("[role=tab]");
+      if (tab) this.#showPanel(tab.dataset.panel!);
+    });
+    tablist.addEventListener("keydown", (e) => {
+      const tabs = [...tablist.querySelectorAll<HTMLElement>("[role=tab]")].filter((t) => !t.hidden);
+      const at = tabs.indexOf(document.activeElement as HTMLElement);
+      const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+      if (!step || at < 0) return;
+      e.preventDefault();
+      const to = tabs[(at + step + tabs.length) % tabs.length];
+      this.#showPanel(to.dataset.panel!);
+      to.focus();
+    });
+
+    // Drag the sidebar's edge (or use the arrow keys on it) to resize it.
+    const app = $("app");
+    const resizer = $("sidebarResizer");
+    const setWidth = (w: number) => {
+      const width = Math.round(Math.max(150, Math.min(480, w)));
+      app.style.setProperty("--sidebar-w", `${width}px`);
+      writePref("sidebarWidth", String(width));
+      this.#refit();
+    };
+    const saved = Number(readPref("sidebarWidth"));
+    if (saved) app.style.setProperty("--sidebar-w", `${Math.max(150, Math.min(480, saved))}px`);
+    resizer.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      resizer.setPointerCapture(e.pointerId);
+      const left = $("sidebar").getBoundingClientRect().left;
+      const move = (ev: PointerEvent) => setWidth(ev.clientX - left);
+      const up = () => {
+        resizer.removeEventListener("pointermove", move);
+        resizer.removeEventListener("pointerup", up);
+      };
+      resizer.addEventListener("pointermove", move);
+      resizer.addEventListener("pointerup", up);
+    });
+    resizer.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      setWidth($("sidebar").offsetWidth + (e.key === "ArrowRight" ? 16 : -16));
+    });
   }
 
   #setSidebar(open: boolean) {
@@ -994,16 +1150,21 @@ export class App {
   #wireViewerEvents() {
     const bus = this.eventBus;
     bus.on("pagesinit", () => {
-      const v = this.#pendingView ?? { page: 1, scale: "auto" };
-      this.viewer.currentScaleValue = v.scale;
+      const v = this.#pendingView ?? { page: 1, scale: "auto", rotation: 0 };
+      const layout = this.#presenting ? { scroll: ScrollMode.PAGE, spread: SpreadMode.NONE } : savedLayout();
+      this.viewer.scrollMode = layout.scroll;
+      this.viewer.spreadMode = layout.spread;
+      if (v.rotation) this.viewer.pagesRotation = v.rotation;
+      this.viewer.currentScaleValue = this.#presenting ? "page-fit" : v.scale;
       if (v.page > 1) this.viewer.currentPageNumber = v.page;
       this.#pendingView = null;
     });
     bus.on("pagechanging", ({ pageNumber }: { pageNumber: number }) => {
-      $<HTMLInputElement>("pageNumber").value = String(pageNumber);
+      this.#renderPageNumber(pageNumber);
       this.thumbs.setCurrent(pageNumber - 1);
-      $<HTMLButtonElement>("btnPrev").disabled = pageNumber <= 1;
-      $<HTMLButtonElement>("btnNext").disabled = pageNumber >= this.pageCount;
+    });
+    bus.on("updateviewarea", ({ location }: { location: Place }) => {
+      this.nav.update({ pageNumber: location.pageNumber, left: location.left, top: location.top });
     });
     bus.on("scalechanging", ({ scale, presetValue }: { scale: number; presetValue?: string }) =>
       this.#renderZoom(scale, presetValue),
@@ -1089,17 +1250,123 @@ export class App {
     num("optOpacity", "inkOpacity");
     num("optHlThickness", "highlightThickness");
 
+    on("btnBack", () => this.nav.back());
+    on("btnForward", () => this.nav.forward());
     const pageInput = $<HTMLInputElement>("pageNumber");
-    pageInput.addEventListener("change", () => {
-      const n = Number.parseInt(pageInput.value, 10);
-      if (n >= 1 && n <= this.pageCount) this.viewer.currentPageNumber = n;
-      else pageInput.value = String(this.page);
-    });
+    pageInput.addEventListener("change", () => this.goToTyped(pageInput.value));
     pageInput.addEventListener("focus", () => pageInput.select());
     $<HTMLSelectElement>("zoomSelect").addEventListener("change", (e) => {
       const v = (e.target as HTMLSelectElement).value;
       if (v !== "custom") this.viewer.currentScaleValue = v;
     });
+  }
+
+  // ----------------------------------------------------------------- view
+
+  setLayout(scroll: ScrollName, spread: SpreadName) {
+    if (!this.doc || this.#presenting) return;
+    this.viewer.scrollMode = SCROLL_MODES[scroll];
+    this.viewer.spreadMode = SPREAD_MODES[spread];
+    writePref("scroll", scroll);
+    writePref("spread", spread);
+    this.#refit();
+  }
+
+  /** Turn the view (not the file) by `delta` degrees. */
+  rotateView(delta: number) {
+    if (!this.doc) return;
+    this.viewer.pagesRotation = (this.viewer.pagesRotation + delta + 360) % 360;
+  }
+
+  #wireViewMenu() {
+    wireMenu($("btnView"), {
+      beforeOpen: (menu) => {
+        checkRadio(menu, "scroll", nameOf(SCROLL_MODES, this.viewer.scrollMode) ?? "vertical");
+        checkRadio(menu, "spread", nameOf(SPREAD_MODES, this.viewer.spreadMode) ?? "none");
+      },
+      choose: (item) => {
+        const { group, value, act } = item.dataset;
+        const scroll = nameOf(SCROLL_MODES, this.viewer.scrollMode) ?? "vertical";
+        const spread = nameOf(SPREAD_MODES, this.viewer.spreadMode) ?? "none";
+        if (group === "scroll") this.setLayout(value as ScrollName, spread);
+        else if (group === "spread") this.setLayout(scroll, value as SpreadName);
+        else if (act === "rotateViewCw") this.rotateView(90);
+        else if (act === "rotateViewCcw") this.rotateView(-90);
+        else if (act === "present") void this.present(true);
+      },
+    });
+  }
+
+  get presenting() {
+    return this.#presenting !== null;
+  }
+
+  /**
+   * Presentation mode: full screen, one page at a time fitted to the screen,
+   * no toolbars. Arrows, Space, Page Up/Down and clicks turn pages; Escape ends it.
+   */
+  async present(on: boolean) {
+    if (!this.doc || on === this.presenting) return;
+    const app = $("app");
+    if (on) {
+      closeMenus();
+      await this.setTool("none");
+      this.#presenting = {
+        scroll: this.viewer.scrollMode,
+        spread: this.viewer.spreadMode,
+        scale: this.viewer.currentScaleValue || "auto",
+      };
+      app.classList.add("presenting");
+      if (!$("findbar").hidden) this.#closeFind();
+      await desktop.setFullscreen(true).catch(() => {});
+      this.viewer.scrollMode = ScrollMode.PAGE;
+      this.viewer.spreadMode = SpreadMode.NONE;
+      // Fit once the window has its full-screen size.
+      requestAnimationFrame(() => (this.viewer.currentScaleValue = "page-fit"));
+      $("viewerContainer").focus();
+    } else {
+      const before = this.#presenting!;
+      this.#presenting = null;
+      app.classList.remove("presenting");
+      await desktop.setFullscreen(false).catch(() => {});
+      this.viewer.scrollMode = before.scroll;
+      this.viewer.spreadMode = before.spread;
+      requestAnimationFrame(() => (this.viewer.currentScaleValue = before.scale));
+    }
+  }
+
+  #wirePresentation() {
+    const container = $("viewerContainer");
+    container.addEventListener("click", (e) => {
+      if (!this.presenting || (e.target as HTMLElement).closest("a, input, textarea, select, button, .annotationLayer section")) return;
+      this.viewer.nextPage();
+    });
+    let lastWheel = 0;
+    container.addEventListener(
+      "wheel",
+      (e) => {
+        if (!this.presenting || e.ctrlKey || e.metaKey) return;
+        e.preventDefault();
+        if (Math.abs(e.deltaY) < 4 || e.timeStamp - lastWheel < 250) return;
+        lastWheel = e.timeStamp;
+        if (e.deltaY > 0) this.viewer.nextPage();
+        else this.viewer.previousPage();
+      },
+      { passive: false },
+    );
+  }
+
+  /** Keys during presentation. Returns true if the key was used. */
+  #presentationKey(e: KeyboardEvent) {
+    const next = ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter", "n"];
+    const previous = ["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p"];
+    if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l")) void this.present(false);
+    else if (next.includes(e.key) && !e.shiftKey) this.viewer.nextPage();
+    else if (previous.includes(e.key) || (e.key === " " && e.shiftKey)) this.viewer.previousPage();
+    else if (e.key === "Home") this.viewer.currentPageNumber = 1;
+    else if (e.key === "End") this.viewer.currentPageNumber = this.pageCount;
+    else return false;
+    return true;
   }
 
   // ----------------------------------------------------------------- find
@@ -1186,8 +1453,18 @@ export class App {
         e.stopPropagation();
       };
 
+      if (menuIsOpen()) return; // the menu handles its own keys
+      if (this.presenting) {
+        if (this.#presentationKey(e)) handled();
+        return;
+      }
       if (mod && key === "o") return handled(), void this.open();
       if (!this.doc) return;
+      if (mod && key === "l") return handled(), void this.present(true);
+      if (mod && e.shiftKey && e.code === "Equal") return handled(), this.rotateView(90);
+      if (mod && e.shiftKey && e.code === "Minus") return handled(), this.rotateView(-90);
+      if (e.altKey && !mod && e.key === "ArrowLeft" && !typing) return handled(), this.nav.back();
+      if (e.altKey && !mod && e.key === "ArrowRight" && !typing) return handled(), this.nav.forward();
       if (mod && key === "s") return handled(), void this.save(e.shiftKey);
       if (mod && key === "p") return handled(), void this.print();
       if (mod && key === "f") return handled(), this.#openFind();
@@ -1327,6 +1604,23 @@ async function confirmDialog(title: string, message: string, ok: string) {
   $("confirmMsg").textContent = message;
   $("confirmOk").textContent = ok;
   return (await showDialog($<HTMLDialogElement>("confirmDialog"))) === "ok";
+}
+
+/** The page layout last chosen in the View menu. */
+function savedLayout() {
+  const scroll = readPref("scroll") as ScrollName | null;
+  const spread = readPref("spread") as SpreadName | null;
+  return {
+    scroll: scroll && scroll in SCROLL_MODES ? SCROLL_MODES[scroll] : ScrollMode.VERTICAL,
+    spread: spread && spread in SPREAD_MODES ? SPREAD_MODES[spread] : SpreadMode.NONE,
+  };
+}
+
+/** The document's page labels, or null if it has none or they just count 1, 2, 3… */
+async function pageLabels(doc: PDFDocumentProxy) {
+  const labels = await doc.getPageLabels().catch(() => null);
+  if (!labels || labels.length !== doc.numPages || labels.every((l, i) => l === String(i + 1))) return null;
+  return labels;
 }
 
 function readPref(key: string) {

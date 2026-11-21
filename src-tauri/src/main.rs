@@ -97,8 +97,54 @@ fn file_dialog(window: &Window, shell: &Shell) -> FileDialogBuilder<Wry> {
     }
 }
 
-fn has_pdf_extension(path: &Path) -> bool {
-    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+/// What a save dialog saves: a PDF, an image, or any file (an attachment).
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    Pdf,
+    Png,
+    Jpeg,
+    Any,
+}
+
+impl Kind {
+    fn parse(kind: Option<&str>) -> Result<Self, String> {
+        match kind.unwrap_or("pdf") {
+            "pdf" => Ok(Self::Pdf),
+            "png" => Ok(Self::Png),
+            "jpeg" => Ok(Self::Jpeg),
+            "any" => Ok(Self::Any),
+            other => Err(format!("Unknown file kind: {other}")),
+        }
+    }
+
+    /// The dialog's filter, and the extensions a saved file may have (the first is added if missing).
+    fn extensions(self) -> Option<(&'static str, &'static [&'static str])> {
+        match self {
+            Self::Pdf => Some(("PDF documents", &["pdf"])),
+            Self::Png => Some(("PNG images", &["png"])),
+            Self::Jpeg => Some(("JPEG images", &["jpg", "jpeg"])),
+            Self::Any => None,
+        }
+    }
+
+    fn accepts(self, path: &Path) -> bool {
+        self.extensions().is_none_or(|(_, exts)| {
+            path.extension().is_some_and(|e| exts.iter().any(|x| e.eq_ignore_ascii_case(x)))
+        })
+    }
+
+    /// `path`, with this kind's extension added if it has none of them.
+    fn with_extension(self, path: PathBuf) -> PathBuf {
+        match self.extensions() {
+            Some((_, exts)) if !self.accepts(&path) => {
+                let mut with_ext = path.into_os_string();
+                with_ext.push(".");
+                with_ext.push(exts[0]);
+                PathBuf::from(with_ext)
+            }
+            _ => path,
+        }
+    }
 }
 
 // ------------------------------------------------------------------ commands
@@ -138,55 +184,59 @@ async fn pick_image(window: Window, shell: State<'_, Shell>) -> Result<Option<Pa
 }
 
 #[tauri::command]
-async fn save_as(window: Window, shell: State<'_, Shell>, suggested_name: String) -> Result<Option<PathBuf>, String> {
+async fn save_as(
+    window: Window,
+    shell: State<'_, Shell>,
+    suggested_name: String,
+    kind: Option<String>,
+) -> Result<Option<PathBuf>, String> {
+    let kind = Kind::parse(kind.as_deref())?;
     let name = Path::new(&suggested_name)
         .file_name()
         .map_or_else(|| "document.pdf".into(), |n| n.to_string_lossy().into_owned());
     #[cfg(feature = "e2e")]
     e2e::log(serde_json::json!({ "suggestedName": &name }));
     let chosen = scripted::<PathBuf>("save").unwrap_or_else(|| {
-        file_dialog(&window, &shell)
-            .set_file_name(name)
-            .add_filter("PDF documents", &["pdf"])
-            .blocking_save_file()
-            .and_then(|f| f.into_path().ok())
+        let dialog = file_dialog(&window, &shell).set_file_name(name);
+        let dialog = match kind.extensions() {
+            Some((label, exts)) => dialog.add_filter(label, exts),
+            None => dialog,
+        };
+        dialog.blocking_save_file().and_then(|f| f.into_path().ok())
     });
     let Some(path) = chosen else { return Ok(None) };
-    let path = if has_pdf_extension(&path) {
-        path
-    } else {
-        let mut with_ext = path.into_os_string();
-        with_ext.push(".pdf");
-        PathBuf::from(with_ext)
-    };
-    Ok(shell.grant(&window, vec![path]).pop())
+    Ok(shell.grant(&window, vec![kind.with_extension(path)]).pop())
 }
 
-/// A file name ending in .pdf, with no folder, drive or `..` in it.
-fn is_pdf_file_name(name: &str) -> bool {
+/// A plain file name of `kind`, with no folder, drive or `..` in it.
+fn is_file_name(name: &str, kind: Kind) -> bool {
     let mut parts = Path::new(name).components();
     matches!((parts.next(), parts.next()), (Some(Component::Normal(_)), None))
         && !name.contains(['/', '\\', ':'])
-        && has_pdf_extension(Path::new(name))
+        && kind != Kind::Any
+        && kind.accepts(Path::new(name))
 }
 
 /// The folder chosen, and each file in it with whether it already exists.
 type FolderFiles = (PathBuf, Vec<(PathBuf, bool)>);
 
-/// Asks for a folder to save the files `names` in (a split document's parts).
-/// Lets the window write exactly those files there, and returns the folder
-/// and, for each name, its path and whether a file is already there.
+/// Asks for a folder to save the files `names` in (a split document's parts,
+/// or pages exported as images). Lets the window write exactly those files
+/// there, and returns the folder and, for each name, its path and whether a
+/// file is already there.
 #[tauri::command]
 async fn save_to_folder(
     window: Window,
     shell: State<'_, Shell>,
     names: Vec<String>,
+    kind: Option<String>,
 ) -> Result<Option<FolderFiles>, String> {
+    let kind = Kind::parse(kind.as_deref())?;
     if names.is_empty() {
         return Err("No files to save.".into());
     }
-    if let Some(bad) = names.iter().find(|n| !is_pdf_file_name(n)) {
-        return Err(format!("Not a PDF file name: {bad}"));
+    if let Some(bad) = names.iter().find(|n| !is_file_name(n, kind)) {
+        return Err(format!("Not a file name this folder can take: {bad}"));
     }
     let chosen = scripted::<PathBuf>("folder").unwrap_or_else(|| {
         file_dialog(&window, &shell).blocking_pick_folder().and_then(|f| f.into_path().ok())
@@ -256,6 +306,14 @@ fn print_page(webview: Webview) -> Result<(), String> {
         return Ok(());
     }
     webview.print().map_err(|e| e.to_string())
+}
+
+/// Full screen for presentation mode.
+#[tauri::command]
+fn set_fullscreen(window: Window, on: bool) -> Result<(), String> {
+    #[cfg(feature = "e2e")]
+    e2e::log(serde_json::json!({ "fullscreen": on }));
+    window.set_fullscreen(on).map_err(|e| e.to_string())
 }
 
 // ------------------------------------------------------------------- windows
@@ -403,12 +461,13 @@ fn main() {
         .manage(Shell::default());
     #[cfg(not(feature = "e2e"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
-        initial_file, pick_pdfs, pick_image, save_as, save_to_folder, read_file, write_file, close_window, print_page
+        initial_file, pick_pdfs, pick_image, save_as, save_to_folder, read_file, write_file, close_window, print_page,
+        set_fullscreen
     ]);
     #[cfg(feature = "e2e")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         initial_file, pick_pdfs, pick_image, save_as, save_to_folder, read_file, write_file, close_window, print_page,
-        e2e::request_close
+        set_fullscreen, e2e::request_close
     ]);
 
     builder

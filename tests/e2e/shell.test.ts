@@ -72,7 +72,7 @@ test("the page gets no Tauri APIs and can only touch files the user chose", asyn
     process: "undefined",
     tauri: "undefined",
     // Release builds have `print` on macOS only; test builds route printing through the shell everywhere.
-    bridge: ["initialFile", "onCloseRequested", "openImage", "openPdfs", "platform", "print", "saveAs", "saveToFolder", "write"],
+    bridge: ["initialFile", "onCloseRequested", "openImage", "openPdfs", "platform", "print", "saveAs", "saveToFolder", "setFullscreen", "write"],
   });
 
   /** Runs an async function in the page and reports "ok" or its error. */
@@ -101,15 +101,21 @@ test("the page gets no Tauri APIs and can only touch files the user chose", asyn
   // Picking a folder allows writing the named PDFs there, and nothing else.
   const folder = workDir();
   answer({ folder });
-  const save = (names: string[]) =>
+  const save = (names: string[], kind?: string) =>
     app.execAsync<string>(
       `const done = arguments[arguments.length - 1];
-       window.palimpsestDesktop.saveToFolder(arguments[0]).then((r) => done(JSON.stringify(r)), (e) => done(String(e?.message ?? e)));`,
+       window.palimpsestDesktop.saveToFolder(arguments[0], arguments[1]).then((r) => done(JSON.stringify(r)), (e) => done(String(e?.message ?? e)));`,
       names,
+      kind,
     );
   for (const bad of [["../escape.pdf"], ["sub/part.pdf"], ["sub\\part.pdf"], ["C:part.pdf"], ["notes.txt"], [".."], []]) {
-    expect(await save(bad)).toMatch(/Not a PDF file name|No files/);
+    expect(await save(bad)).toMatch(/Not a file name|No files/);
   }
+  // Image folders take only image names; any other kind of file is never saved to a folder.
+  expect(await save(["page-1.pdf"], "png")).toMatch(/Not a file name/);
+  expect(await save(["../page-1.png"], "png")).toMatch(/Not a file name/);
+  expect(await save(["notes.txt"], "any")).toMatch(/Not a file name/);
+  expect(await save(["page.png"], "exe")).toMatch(/Unknown file kind/);
   const granted = JSON.parse(await save(["part 1.pdf"])) as { files: { name: string; path: string; exists: boolean }[] };
   expect(granted.files).toEqual([{ name: "part 1.pdf", path: join(folder, "part 1.pdf"), exists: false }]);
   expect(await attempt("(p) => window.palimpsestDesktop.write(p, new Uint8Array([37, 80, 68, 70]))", granted.files[0].path)).toBe("ok");

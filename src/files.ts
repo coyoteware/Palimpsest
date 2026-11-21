@@ -2,7 +2,7 @@
  * File I/O through the desktop shell (src-tauri): native dialogs, and reads
  * and writes limited to files the user picked or opened the app with.
  */
-import { desktop, type DesktopFile } from "./desktop";
+import { desktop, type DesktopFile, type FileKind } from "./desktop";
 
 /** Somewhere a document can be written back to. */
 export interface SaveTarget {
@@ -46,8 +46,8 @@ export async function pickImage(): Promise<File | null> {
 }
 
 /** "Save as": returns where it was saved, or undefined if cancelled. */
-export async function saveAs(name: string, bytes: Uint8Array): Promise<SaveTarget | undefined> {
-  const chosen = await desktop.saveAs(name);
+export async function saveAs(name: string, bytes: Uint8Array, kind: FileKind = "pdf"): Promise<SaveTarget | undefined> {
+  const chosen = await desktop.saveAs(name, kind);
   if (!chosen) return undefined;
   const target = pathTarget(chosen.name, chosen.path);
   await target.write(bytes);
@@ -60,8 +60,11 @@ export interface FolderTarget extends SaveTarget {
 }
 
 /** Ask for a folder to save files named `names` in. Returns undefined if cancelled. */
-export async function saveToFolder(names: string[]): Promise<{ folder: string; files: FolderTarget[] } | undefined> {
-  const chosen = await desktop.saveToFolder(names);
+export async function saveToFolder(
+  names: string[],
+  kind: FileKind = "pdf",
+): Promise<{ folder: string; files: FolderTarget[] } | undefined> {
+  const chosen = await desktop.saveToFolder(names, kind);
   if (!chosen) return undefined;
   return {
     folder: chosen.folder.name,

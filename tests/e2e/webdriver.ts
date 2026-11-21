@@ -6,7 +6,19 @@
  */
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 
-export const Key = { Control: "", Shift: "", Escape: "", Enter: "" } as const;
+/** WebDriver key codes for keys that are not characters. */
+export const Key = {
+  Control: "\uE009",
+  Shift: "\uE008",
+  Alt: "\uE00A",
+  Escape: "\uE00C",
+  Enter: "\uE007",
+  Space: "\uE00D",
+  ArrowLeft: "\uE012",
+  ArrowUp: "\uE013",
+  ArrowRight: "\uE014",
+  ArrowDown: "\uE015",
+} as const;
 
 type Json = Record<string, unknown>;
 type Point = readonly [number, number];
@@ -196,6 +208,11 @@ export class Session {
 
   visible(css: string) {
     return this.exec<boolean>("return !!document.querySelector(arguments[0])?.checkVisibility()", css);
+  }
+
+  /** A PNG of the window, for looking at a failure. */
+  async screenshot() {
+    return Buffer.from(await this.#cmd<string>("GET", "/screenshot"), "base64");
   }
 
   /** End the session; the driver quits the app. Best effort: the app may already be gone. */

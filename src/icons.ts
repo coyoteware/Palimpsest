@@ -27,6 +27,13 @@ const paths: Record<string, string> = {
   extract: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 18v-7"/><path d="m9 14 3-3 3 3"/>',
   split: '<rect x="5" y="3" width="14" height="6" rx="1.5"/><rect x="5" y="15" width="14" height="6" rx="1.5"/><path d="M2.5 12h3M10.5 12h3M18.5 12h3"/>',
   merge: '<rect x="3" y="3" width="7" height="8" rx="1.5"/><rect x="14" y="3" width="7" height="8" rx="1.5"/><path d="M6.5 11v1.5a3 3 0 0 0 3 3h5a3 3 0 0 0 3-3V11"/><path d="M12 15.5V21"/><path d="m9.5 18.5 2.5 2.5 2.5-2.5"/>',
+  back: '<path d="M19 12H5"/><path d="m11 18-6-6 6-6"/>',
+  forward: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+  layout: '<rect x="3" y="4" width="8" height="16" rx="1.5"/><rect x="13" y="4" width="8" height="16" rx="1.5"/>',
+  pages: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
+  bookmark: '<path d="M7 3h10a1 1 0 0 1 1 1v17l-6-4-6 4V4a1 1 0 0 1 1-1z"/>',
+  paperclip: '<path d="m20 11-8.5 8.5a5 5 0 0 1-7-7L13 4a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L14.5 7"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
   close: '<path d="M18 6 6 18M6 6l12 12"/>',
   logo: '<path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M15 2v5h5"/><path d="M8 17c2-1 3-4 5-4s1 3 3 2"/>',
 };

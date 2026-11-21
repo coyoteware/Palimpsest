@@ -11,7 +11,7 @@
     <div id="app" class="no-doc">
       <header class="toolbar" role="toolbar" aria-label="Main">
         <div class="group">
-          <button id="btnSidebar" class="icon needs-doc" data-icon="sidebar" title="Pages panel (F4)" aria-label="Toggle pages panel" aria-pressed="true"></button>
+          <button id="btnSidebar" class="icon needs-doc" data-icon="sidebar" title="Sidebar (F4)" aria-label="Toggle sidebar" aria-pressed="true"></button>
           <button id="btnOpen" class="icon" data-icon="open" title="Open (Ctrl+O)" aria-label="Open"></button>
           <button id="btnMerge" class="icon" data-icon="merge" title="Merge PDFs…" aria-label="Merge PDFs"></button>
           <button id="btnSave" class="icon needs-doc" data-icon="save" title="Save (Ctrl+S)" aria-label="Save"></button>
@@ -25,6 +25,8 @@
           <input id="pageNumber" class="page-input" type="text" inputmode="numeric" aria-label="Page number" value="1" />
           <span class="muted" id="pageCount">/ 0</span>
           <button id="btnNext" class="icon" data-icon="down" title="Next page" aria-label="Next page"></button>
+          <button id="btnBack" class="icon" data-icon="back" title="Back (Alt+←)" aria-label="Back" disabled></button>
+          <button id="btnForward" class="icon" data-icon="forward" title="Forward (Alt+→)" aria-label="Forward" disabled></button>
         </div>
 
         <div class="group needs-doc" aria-label="Zoom">
@@ -45,6 +47,7 @@
             <option value="custom" id="zoomCustom" hidden disabled></option>
           </select>
           <button id="btnZoomIn" class="icon" data-icon="plus" title="Zoom in (Ctrl+=)" aria-label="Zoom in"></button>
+          <button id="btnView" class="icon" data-icon="layout" title="View options" aria-label="View options" aria-controls="viewMenu"></button>
         </div>
 
         <div class="group tools needs-doc" role="radiogroup" aria-label="Editing tools">
@@ -93,19 +96,38 @@
         <button id="findClose" class="icon" data-icon="close" title="Close (Esc)" aria-label="Close find bar"></button>
       </div>
 
-      <aside id="sidebar" aria-label="Pages">
-        <div class="page-actions" role="toolbar" aria-label="Page actions">
-          <button id="pgRotL" class="icon" data-icon="rotateCcw" title="Rotate left" aria-label="Rotate left"></button>
-          <button id="pgRotR" class="icon" data-icon="rotateCw" title="Rotate right" aria-label="Rotate right"></button>
-          <button id="pgDup" class="icon" data-icon="duplicate" title="Duplicate" aria-label="Duplicate pages"></button>
-          <button id="pgBlank" class="icon" data-icon="blankPage" title="Insert blank page after" aria-label="Insert blank page"></button>
-          <button id="pgInsert" class="icon" data-icon="insertPdf" title="Insert pages from PDF…" aria-label="Insert pages from PDF"></button>
-          <button id="pgExtract" class="icon" data-icon="extract" title="Save selected pages as…" aria-label="Extract pages"></button>
-          <button id="pgSplit" class="icon" data-icon="split" title="Split into files…" aria-label="Split into files"></button>
-          <button id="pgDelete" class="icon danger" data-icon="trash" title="Delete (Del)" aria-label="Delete pages"></button>
+      <aside id="sidebar" aria-label="Sidebar">
+        <div class="panel-tabs" role="tablist" aria-label="Sidebar panels">
+          <button id="tabPages" role="tab" class="icon" data-icon="pages" data-panel="panelPages" aria-controls="panelPages" title="Pages" aria-label="Pages" aria-selected="true"></button>
+          <button id="tabOutline" role="tab" class="icon" data-icon="bookmark" data-panel="panelOutline" aria-controls="panelOutline" title="Bookmarks" aria-label="Bookmarks" aria-selected="false" tabindex="-1"></button>
+          <button id="tabAttachments" role="tab" class="icon" data-icon="paperclip" data-panel="panelAttachments" aria-controls="panelAttachments" title="Attachments" aria-label="Attachments" aria-selected="false" tabindex="-1" hidden></button>
+          <button id="tabLayers" role="tab" class="icon" data-icon="layers" data-panel="panelLayers" aria-controls="panelLayers" title="Layers" aria-label="Layers" aria-selected="false" tabindex="-1" hidden></button>
         </div>
-        <div id="selectionInfo" class="selection-info muted" aria-live="polite"></div>
-        <div id="thumbs" class="thumbs" role="listbox" aria-label="Pages" aria-multiselectable="true" tabindex="0"></div>
+        <div id="panelPages" class="panel" role="tabpanel" aria-labelledby="tabPages">
+          <div class="page-actions" role="toolbar" aria-label="Page actions">
+            <button id="pgRotL" class="icon" data-icon="rotateCcw" title="Rotate left" aria-label="Rotate left"></button>
+            <button id="pgRotR" class="icon" data-icon="rotateCw" title="Rotate right" aria-label="Rotate right"></button>
+            <button id="pgDup" class="icon" data-icon="duplicate" title="Duplicate" aria-label="Duplicate pages"></button>
+            <button id="pgBlank" class="icon" data-icon="blankPage" title="Insert blank page after" aria-label="Insert blank page"></button>
+            <button id="pgInsert" class="icon" data-icon="insertPdf" title="Insert pages from PDF…" aria-label="Insert pages from PDF"></button>
+            <button id="pgExtract" class="icon" data-icon="extract" title="Save selected pages as…" aria-label="Extract pages"></button>
+            <button id="pgSplit" class="icon" data-icon="split" title="Split into files…" aria-label="Split into files"></button>
+            <button id="pgDelete" class="icon danger" data-icon="trash" title="Delete (Del)" aria-label="Delete pages"></button>
+          </div>
+          <div id="selectionInfo" class="selection-info muted" aria-live="polite"></div>
+          <div id="thumbs" class="thumbs" role="listbox" aria-label="Pages" aria-multiselectable="true" tabindex="0"></div>
+        </div>
+        <div id="panelOutline" class="panel" role="tabpanel" aria-labelledby="tabOutline" hidden>
+          <ul id="outlineTree" class="tree" role="tree" aria-label="Bookmarks"></ul>
+          <p id="outlineEmpty" class="panel-empty muted">This document has no bookmarks.</p>
+        </div>
+        <div id="panelAttachments" class="panel" role="tabpanel" aria-labelledby="tabAttachments" hidden>
+          <ul id="attachmentList" class="attachment-list" aria-label="Attached files"></ul>
+        </div>
+        <div id="panelLayers" class="panel" role="tabpanel" aria-labelledby="tabLayers" hidden>
+          <div id="layerList" class="layer-list"></div>
+        </div>
+        <div id="sidebarResizer" class="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
       </aside>
 
       <main id="main">
@@ -125,6 +147,24 @@
         <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyLabel"></span></div>
         <div id="dropHint" class="drop-hint" hidden>Drop to open</div>
       </main>
+    </div>
+
+    <div id="viewMenu" class="menu" role="menu" aria-label="View options" hidden>
+      <div class="menu-label" role="presentation">Page layout</div>
+      <button role="menuitemradio" data-group="scroll" data-value="vertical">Continuous</button>
+      <button role="menuitemradio" data-group="scroll" data-value="page">Single page</button>
+      <button role="menuitemradio" data-group="scroll" data-value="wrapped">Wrapped</button>
+      <button role="menuitemradio" data-group="scroll" data-value="horizontal">Horizontal</button>
+      <hr role="separator" />
+      <div class="menu-label" role="presentation">Two-page view</div>
+      <button role="menuitemradio" data-group="spread" data-value="none">Off</button>
+      <button role="menuitemradio" data-group="spread" data-value="odd">Two pages</button>
+      <button role="menuitemradio" data-group="spread" data-value="even">Two pages, cover page alone</button>
+      <hr role="separator" />
+      <button role="menuitem" data-act="rotateViewCw">Rotate view clockwise <kbd>Ctrl+Shift+=</kbd></button>
+      <button role="menuitem" data-act="rotateViewCcw">Rotate view counterclockwise <kbd>Ctrl+Shift+−</kbd></button>
+      <hr role="separator" />
+      <button role="menuitem" data-act="present">Presentation <kbd>Ctrl+L</kbd></button>
     </div>
 
     <div id="toasts" class="toasts" aria-live="polite"></div>

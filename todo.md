@@ -4,15 +4,15 @@ Features Adobe Reader (and Acrobat Pro) have that Palimpsest lacks, ordered by c
 
 ## Tier 1: pdf.js already provides the machinery
 
-- [ ] **Bookmarks panel**: the document outline as a tree in the sidebar (`getOutline()`), with tabs for attachments (`getAttachments()`) and layers (`getOptionalContentConfig()`).
-- [ ] **Page display modes**: single page, continuous, two-page spreads (odd or even first), wrapped (`PDFViewer.scrollMode` / `spreadMode`).
-- [ ] **Rotate view**: turn the view without changing the file (`pdfViewer.pagesRotation`).
-- [ ] **Back / forward**: return after following a link, Alt+Left / Alt+Right (`PDFHistory`).
-- [ ] **Page labels**: the page box shows labels such as "iv (4 of 120)" (`getPageLabels()`).
+- [x] **Bookmarks panel**: the document outline as a tree in the sidebar (`getOutline()`), with tabs for attachments (`getAttachments()`) and layers (`getOptionalContentConfig()`).
+- [x] **Page display modes**: single page, continuous, two-page spreads (odd or even first), wrapped (`PDFViewer.scrollMode` / `spreadMode`).
+- [x] **Rotate view**: turn the view without changing the file (`pdfViewer.pagesRotation`).
+- [x] **Back / forward**: return after following a link, Alt+Left / Alt+Right (`PDFHistory`).
+- [x] **Page labels**: the page box shows labels such as "iv (4 of 120)" (`getPageLabels()`).
 - [ ] **Comments**: sticky notes and a panel listing every comment (`AnnotationEditorType.COMMENT` / `POPUP`).
 - [ ] **Fill & Sign**: typed or drawn signatures and initials, saved for reuse; check, cross and date marks (`AnnotationEditorType.SIGNATURE`).
 - [ ] **Form JavaScript**: calculated fields, formatting and validation (`PDFScriptingManager` and the pdf.js sandbox).
-- [ ] **Full screen / presentation mode**.
+- [x] **Full screen / presentation mode**.
 
 ## Tier 2: our own code
 
