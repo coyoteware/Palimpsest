@@ -54,12 +54,26 @@
           <button class="icon tool" data-tool="none" data-icon="pointer" title="Select (V)" aria-label="Select" role="radio" aria-checked="true"></button>
           <button class="icon tool" data-tool="text" data-icon="text" title="Add text (T)" aria-label="Add text" role="radio" aria-checked="false"></button>
           <button class="icon tool" data-tool="ink" data-icon="pen" title="Draw (D)" aria-label="Draw" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="shape" data-icon="shapes" title="Shapes (S)" aria-label="Shapes" role="radio" aria-checked="false"></button>
           <button class="icon tool" data-tool="highlight" data-icon="highlight" title="Highlight (H)" aria-label="Highlight" role="radio" aria-checked="false"></button>
-          <button class="icon tool" data-tool="image" data-icon="image" title="Add image or signature (I)" aria-label="Add image" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="markup" data-icon="underline" title="Underline, strike out (U)" aria-label="Underline or strike out text" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="image" data-icon="image" title="Add image (I)" aria-label="Add image" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="sign" data-icon="signature" title="Fill &amp; Sign (G)" aria-label="Fill and sign" role="radio" aria-checked="false" aria-controls="signMenu"></button>
         </div>
 
         <div class="group tool-options needs-doc" id="toolOptions" aria-label="Tool options">
-          <label class="opt" data-for="text ink" title="Color">
+          <div class="opt seg" data-for="shape" role="radiogroup" aria-label="Shape">
+            <button data-shape="rect" data-icon="rect" class="icon" role="radio" title="Rectangle" aria-label="Rectangle"></button>
+            <button data-shape="ellipse" data-icon="ellipse" class="icon" role="radio" title="Ellipse" aria-label="Ellipse"></button>
+            <button data-shape="line" data-icon="line" class="icon" role="radio" title="Line" aria-label="Line"></button>
+            <button data-shape="arrow" data-icon="arrow" class="icon" role="radio" title="Arrow" aria-label="Arrow"></button>
+          </div>
+          <div class="opt seg" data-for="markup" role="radiogroup" aria-label="Markup">
+            <button data-markup="underline" data-icon="underline" class="icon" role="radio" title="Underline" aria-label="Underline"></button>
+            <button data-markup="strikeout" data-icon="strikeout" class="icon" role="radio" title="Strike out" aria-label="Strike out"></button>
+            <button data-markup="squiggly" data-icon="squiggly" class="icon" role="radio" title="Squiggly underline" aria-label="Squiggly underline"></button>
+          </div>
+          <label class="opt" data-for="text ink shape markup" title="Color">
             <input type="color" id="optColor" value="#000000" aria-label="Color" />
           </label>
           <div class="opt swatches" data-for="highlight" role="radiogroup" aria-label="Highlight color">
@@ -70,10 +84,12 @@
             <button class="swatch" data-color="#FF4F5F" style="--c:#FF4F5F" title="Red" aria-label="Red"></button>
           </div>
           <label class="opt" data-for="text">Size <input type="number" id="optFontSize" min="5" max="100" value="12" /></label>
-          <label class="opt" data-for="ink">Width <input type="range" id="optThickness" min="1" max="20" value="2" /></label>
-          <label class="opt" data-for="ink">Opacity <input type="range" id="optOpacity" min="10" max="100" value="100" /></label>
+          <label class="opt" data-for="ink shape">Width <input type="range" id="optThickness" min="1" max="20" value="2" /></label>
+          <label class="opt" data-for="ink shape">Opacity <input type="range" id="optOpacity" min="10" max="100" value="100" /></label>
           <label class="opt" data-for="highlight">Free width <input type="range" id="optHlThickness" min="8" max="24" value="12" /></label>
           <button class="opt text-button" data-for="image" id="btnAddImage">Choose image…</button>
+          <span class="opt muted" data-for="sign" id="signHint" aria-live="polite"></span>
+          <span class="opt muted" data-for="markup">Select text to mark it</span>
         </div>
 
         <div class="spacer"></div>
@@ -167,6 +183,8 @@
       <button role="menuitem" data-act="present">Presentation <kbd>Ctrl+L</kbd></button>
     </div>
 
+    <div id="signMenu" class="menu sign-menu" role="menu" aria-label="Fill and sign" hidden></div>
+
     <div id="toasts" class="toasts" aria-live="polite"></div>
 
     <dialog id="passwordDialog">
@@ -219,6 +237,26 @@
         <ol id="mergeList" class="file-list" aria-label="Files to merge"></ol>
         <button type="button" id="mergeAdd" class="text-button">Add files…</button>
         <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="mergeOk">Merge</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="signatureDialog" aria-labelledby="sigTitle">
+      <form method="dialog">
+        <h2 id="sigTitle">Add signature</h2>
+        <div class="seg-tabs" role="tablist" aria-label="How to sign">
+          <button type="button" role="tab" data-mode="type" aria-controls="sigTypePanel" aria-selected="true">Type</button>
+          <button type="button" role="tab" data-mode="draw" aria-controls="sigDrawPanel" aria-selected="false" tabindex="-1">Draw</button>
+        </div>
+        <div id="sigTypePanel" role="tabpanel">
+          <input id="sigName" autocomplete="name" aria-label="Name" />
+          <div id="sigPreview" class="sig-preview" aria-hidden="true"></div>
+        </div>
+        <div id="sigDrawPanel" role="tabpanel" hidden>
+          <canvas id="sigCanvas" class="sig-canvas" width="800" height="240" aria-label="Draw your signature here"></canvas>
+          <button type="button" id="sigClear" class="text-button">Clear</button>
+        </div>
+        <label class="check sig-save"><input type="checkbox" id="sigSave" checked /> Save on this device for next time</label>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="sigOk">Add</button></menu>
       </form>
     </dialog>
 

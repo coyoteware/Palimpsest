@@ -16,25 +16,44 @@ import * as files from "./files";
 import { DocHistory } from "./history";
 import { icon } from "./icons";
 import { checkRadio, closeMenus, menuIsOpen, wireMenu } from "./menu";
+import * as marks from "./marks";
+import type { EditorData, Markup, Shape } from "./marks";
 import { NavHistory, type Place } from "./navhistory";
 import * as ops from "./pageops";
 import { Panels, type Attachment } from "./panels";
 import { PDFJS_ASSETS, openPdf, type PDFDocumentProxy } from "./pdfjs";
 import { printPdf } from "./print";
+import { askSignature, forgetSignatures, savedSignatures, type SavedSignature } from "./signatures";
 import { Thumbnails } from "./thumbnails";
 
 const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
 
-type Tool = "none" | "text" | "ink" | "highlight" | "image";
+/**
+ * The toolbar's tools. Text, draw, highlight and image are pdf.js's own
+ * editors; the others leave pdf.js in its plain mode and handle the pointer
+ * here, creating pdf.js editors (ink, text, images) from what the user does.
+ */
+type Tool = "none" | "text" | "ink" | "shape" | "highlight" | "markup" | "image" | "sign";
 const MODE: Record<Tool, number> = {
   none: T.NONE,
   text: T.FREETEXT,
   ink: T.INK,
+  shape: T.NONE,
   highlight: T.HIGHLIGHT,
+  markup: T.NONE,
   image: T.STAMP,
+  sign: T.NONE,
 };
-const TOOL_OF_MODE = new Map(Object.entries(MODE).map(([tool, mode]) => [mode, tool as Tool]));
-const TOOL_KEYS: Record<string, Tool> = { v: "none", t: "text", d: "ink", h: "highlight", i: "image" };
+const TOOL_OF_MODE = new Map<number, Tool>([
+  [T.NONE, "none"],
+  [T.FREETEXT, "text"],
+  [T.INK, "ink"],
+  [T.HIGHLIGHT, "highlight"],
+  [T.STAMP, "image"],
+]);
+/** Tools that work by dragging or clicking on a page (rather than selecting text). */
+const POINTER_TOOLS: ReadonlySet<Tool> = new Set(["shape", "sign"]);
+const TOOL_KEYS: Record<string, Tool> = { v: "none", t: "text", d: "ink", s: "shape", h: "highlight", u: "markup", i: "image", g: "sign" };
 const HIGHLIGHT_COLORS = "yellow=#FFFF98,green=#53FFBC,blue=#80EBFF,pink=#FFCBE6,red=#FF4F5F";
 
 interface UIManager {
@@ -43,7 +62,35 @@ interface UIManager {
   commitOrRemove(): void;
   unselectAll(): void;
   readonly hasSelection: boolean;
+  getLayer(pageIndex: number): EditorLayer | undefined;
+  addCommands(params: { cmd: () => void; undo: () => void; mustExec: boolean }): void;
 }
+
+/** pdf.js's annotation editor layer for one page (the parts used here). */
+interface EditorLayer {
+  readonly div: HTMLElement;
+  deserialize(data: EditorData): Promise<Editor | null>;
+  addOrRebuild(editor: Editor): void;
+}
+
+interface Editor {
+  remove(): void;
+}
+
+/** Where a pointer event landed on a page: CSS pixels from the page's top left. */
+interface PageHit {
+  el: HTMLElement;
+  pageIndex: number;
+  x: number;
+  y: number;
+  rect: DOMRect;
+}
+
+/** What the Fill & Sign tool puts down where the user clicks next. */
+type Placing =
+  | { kind: "mark"; mark: marks.Mark }
+  | { kind: "date" }
+  | { kind: "image"; signature: SavedSignature };
 
 /** Defaults for new annotations; what the tool options show when nothing is selected. */
 interface ToolParams {
@@ -54,6 +101,12 @@ interface ToolParams {
   inkOpacity: number;
   highlightColor: string;
   highlightThickness: number;
+  shapeKind: Shape;
+  shapeColor: string;
+  shapeThickness: number;
+  shapeOpacity: number;
+  markupKind: Markup;
+  markupColor: string;
 }
 
 /** pdf.js parameter type ↔ ToolParams key (opacity is 0–1 in pdf.js, 0–100 here). */
@@ -66,14 +119,23 @@ const PARAM_KEYS: [number, keyof ToolParams][] = [
   [P.HIGHLIGHT_COLOR, "highlightColor"],
   [P.HIGHLIGHT_THICKNESS, "highlightThickness"],
 ];
+/** The pdf.js parameters each pdf.js tool starts with. */
 const TOOL_PARAMS: Record<Tool, (keyof ToolParams)[]> = {
   none: [],
   text: ["textColor", "textSize"],
   ink: ["inkColor", "inkThickness", "inkOpacity"],
+  shape: [],
   highlight: ["highlightColor", "highlightThickness"],
+  markup: [],
   image: [],
+  sign: [],
 };
+/** Which parameter the shared colour, width and opacity controls set, per tool. */
+const COLOR_KEY: Partial<Record<Tool, keyof ToolParams>> = { text: "textColor", ink: "inkColor", shape: "shapeColor", markup: "markupColor" };
+const WIDTH_KEY: Partial<Record<Tool, keyof ToolParams>> = { ink: "inkThickness", shape: "shapeThickness" };
+const OPACITY_KEY: Partial<Record<Tool, keyof ToolParams>> = { ink: "inkOpacity", shape: "shapeOpacity" };
 const toPdfjs = (key: keyof ToolParams, v: string | number) => (key === "inkOpacity" ? Number(v) / 100 : v);
+const pdfjsParam = (key: keyof ToolParams) => PARAM_KEYS.find(([, k]) => k === key)?.[0];
 const fromPdfjs = (key: keyof ToolParams, v: unknown) =>
   key === "inkOpacity" ? Math.round(Number(v) * 100) : typeof v === "number" ? v : String(v);
 
@@ -154,6 +216,12 @@ export class App {
     inkOpacity: 100,
     highlightColor: "#FFFF98",
     highlightThickness: 12,
+    shapeKind: "rect",
+    shapeColor: "#e5484d",
+    shapeThickness: 2,
+    shapeOpacity: 100,
+    markupKind: "underline",
+    markupColor: "#e5484d",
   };
   /** Values shown in the tool options: #params, or the selected annotation's. */
   #shown: ToolParams = { ...this.#params };
@@ -215,6 +283,8 @@ export class App {
     this.#wireDialogs();
     this.#wireViewMenu();
     this.#wireSidebar();
+    this.#wirePageTools();
+    this.#wireSignMenu();
     this.#wirePresentation();
     container.addEventListener("wheel", (e) => this.#onWheel(e), { passive: false });
     window.addEventListener("beforeunload", (e) => {
@@ -852,6 +922,11 @@ export class App {
 
   async setTool(tool: Tool) {
     if (!this.doc) return;
+    if (tool === "sign" && !this.#placing) {
+      // Choose what to add first.
+      document.querySelector<HTMLElement>('.toolbar .tool[data-tool="sign"]')!.click();
+      return;
+    }
     if (tool !== this.#tool) {
       await this.#setMode(MODE[tool]);
       this.#tool = tool;
@@ -930,11 +1005,274 @@ export class App {
    * otherwise change the default for new ones.
    */
   #setParam(key: keyof ToolParams, value: string | number) {
-    const type = PARAM_KEYS.find(([, k]) => k === key)![0];
-    if (!this.#ui?.hasSelection) (this.#params as unknown as Record<string, unknown>)[key] = value;
+    const type = pdfjsParam(key);
+    // Options of the tools handled here have no pdf.js selection to restyle.
+    if (type === undefined || !this.#ui?.hasSelection) (this.#params as unknown as Record<string, unknown>)[key] = value;
     (this.#shown as unknown as Record<string, unknown>)[key] = value;
-    this.#dispatchParam(type, toPdfjs(key, value));
+    if (type !== undefined) this.#dispatchParam(type, toPdfjs(key, value));
     this.#renderTool();
+  }
+
+  // ------------------------------------ shapes, text markup, Fill & Sign
+
+  /** Add pdf.js editors to a rendered page, as one step pdf.js can undo. */
+  async addEditors(pageIndex: number, datas: EditorData[]) {
+    const ui = this.#ui;
+    const layer = ui?.getLayer(pageIndex);
+    if (!ui || !layer) {
+      toast("Annotations can't be added to this page.", "error");
+      return false;
+    }
+    const editors: Editor[] = [];
+    for (const data of datas) {
+      const editor = await layer.deserialize(data);
+      if (!editor) continue;
+      // Restored as a copy (to show its text), but where it was put, not offset like a paste.
+      if (data.isCopy) (editor as Editor & { isClone?: boolean }).isClone = true;
+      editors.push(editor);
+    }
+    if (!editors.length) return false;
+    // pdf.js selects what it adds and asks to switch to that editor's mode; stay in this tool.
+    this.#adding = true;
+    try {
+      this.#addCommands(ui, layer, editors);
+    } finally {
+      this.#adding = false;
+    }
+    if (MODE[this.#tool] === T.NONE) ui.unselectAll();
+    return true;
+  }
+
+  /** Set while the app adds editors itself (see addEditors). */
+  #adding = false;
+
+  #addCommands(ui: UIManager, layer: EditorLayer, editors: Editor[]) {
+    ui.addCommands({
+      cmd: () => {
+        // Outside pdf.js's editing modes a layer that was empty stays hidden;
+        // ink shows anyway (it is drawn elsewhere), text and images would not.
+        layer.div.hidden = false;
+        editors.forEach((e) => layer.addOrRebuild(e));
+      },
+      undo: () => editors.forEach((e) => e.remove()),
+      mustExec: true,
+    });
+  }
+
+  /** The page under a pointer event, and where on it (CSS pixels from its top left). */
+  #pageAt(e: { target: EventTarget | null; clientX: number; clientY: number }): PageHit | null {
+    const el = (e.target as HTMLElement | null)?.closest<HTMLElement>("#viewer .page");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { el, pageIndex: Number(el.dataset.pageNumber) - 1, x: e.clientX - r.left, y: e.clientY - r.top, rect: r };
+  }
+
+  /** A point on a page's view in PDF points. */
+  #toPdf(pageIndex: number, x: number, y: number): marks.Point {
+    const [px, py] = this.viewer.getPageView(pageIndex).viewport.convertToPdfPoint(x, y) as number[];
+    return [px, py];
+  }
+
+  #wirePageTools() {
+    const container = $("viewerContainer");
+    container.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || !this.doc || this.presenting || !POINTER_TOOLS.has(this.#tool)) return;
+      const hit = this.#pageAt(e);
+      if (!hit) return;
+      e.preventDefault();
+      // Take focus from the tool options, so keys (undo, Escape) reach the app.
+      container.focus({ preventScroll: true });
+      if (this.#tool === "sign") void this.#place(hit.pageIndex, hit.x, hit.y);
+      else if (this.#tool === "shape") this.#dragShape(e, hit);
+    });
+    // Text markup applies to the text selected with the tool on.
+    container.addEventListener("pointerup", () => {
+      if (this.#tool === "markup") setTimeout(() => void this.markSelection());
+    });
+  }
+
+  /** Drag out a shape, previewed as it is drawn. */
+  #dragShape(down: PointerEvent, hit: PageHit) {
+    const { el, pageIndex, rect } = hit;
+    const params = this.#params;
+    const scale = this.viewer.getPageView(pageIndex).viewport.scale;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.classList.add("draw-preview");
+    svg.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", params.shapeColor);
+    path.setAttribute("stroke-opacity", String(params.shapeOpacity / 100));
+    path.setAttribute("stroke-width", String(params.shapeThickness * scale));
+    path.setAttribute("stroke-linejoin", "round");
+    path.setAttribute("stroke-linecap", "round");
+    svg.append(path);
+    el.append(svg);
+    const start: marks.Point = [hit.x, hit.y];
+    let end = start;
+    const clamp = (e: PointerEvent): marks.Point => [
+      Math.max(0, Math.min(rect.width, e.clientX - rect.left)),
+      Math.max(0, Math.min(rect.height, e.clientY - rect.top)),
+    ];
+    const container = $("viewerContainer");
+    container.setPointerCapture(down.pointerId);
+    const move = (e: PointerEvent) => {
+      end = clamp(e);
+      const d = marks
+        .shapePaths(params.shapeKind, start, end, params.shapeThickness * scale)
+        .map((pts) => "M" + pts.map(([x, y]) => `${x},${y}`).join("L"))
+        .join("");
+      path.setAttribute("d", d);
+    };
+    const up = () => {
+      container.removeEventListener("pointermove", move);
+      container.removeEventListener("pointerup", up);
+      container.removeEventListener("pointercancel", up);
+      svg.remove();
+      if (Math.hypot(end[0] - start[0], end[1] - start[1]) < 4) return; // a click, not a drag
+      const a = this.#toPdf(pageIndex, ...start);
+      const b = this.#toPdf(pageIndex, ...end);
+      const stroke = { color: params.shapeColor, thickness: params.shapeThickness, opacity: params.shapeOpacity / 100 };
+      void this.addEditors(pageIndex, [marks.inkData(pageIndex, marks.shapePaths(params.shapeKind, a, b, stroke.thickness), stroke)]);
+    };
+    container.addEventListener("pointermove", move);
+    container.addEventListener("pointerup", up);
+    container.addEventListener("pointercancel", up);
+  }
+
+  /** Underline, strike out or squiggle the selected text, with the markup tool's settings. */
+  async markSelection() {
+    const sel = window.getSelection();
+    if (!this.doc || !sel || sel.isCollapsed || !sel.rangeCount) return;
+    // Boxes of the selected text itself, per page (not of the elements around it).
+    const byPage = new Map<number, marks.Rect[]>();
+    for (let i = 0; i < sel.rangeCount; i++) {
+      const range = sel.getRangeAt(i);
+      const root = range.commonAncestorContainer;
+      const walker = document.createTreeWalker(root.nodeType === Node.TEXT_NODE ? root.parentNode! : root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+        if (!range.intersectsNode(node) || !node.parentElement?.closest(".textLayer")) continue;
+        const page = node.parentElement.closest<HTMLElement>(".page")!;
+        const part = document.createRange();
+        part.setStart(node, node === range.startContainer ? range.startOffset : 0);
+        part.setEnd(node, node === range.endContainer ? range.endOffset : node.length);
+        const origin = page.getBoundingClientRect();
+        const pageIndex = Number(page.dataset.pageNumber) - 1;
+        const list = byPage.get(pageIndex) ?? [];
+        for (const r of part.getClientRects()) {
+          list.push([r.left - origin.left, r.top - origin.top, r.right - origin.left, r.bottom - origin.top]);
+        }
+        byPage.set(pageIndex, list);
+      }
+    }
+    sel.removeAllRanges();
+    const { markupKind, markupColor } = this.#params;
+    for (const [pageIndex, boxes] of byPage) {
+      const pdfBoxes = marks.lineBoxes(boxes).map(([l, t, r, b]): marks.Rect => {
+        const [x1, y1] = this.#toPdf(pageIndex, l, t);
+        const [x2, y2] = this.#toPdf(pageIndex, r, b);
+        return [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
+      });
+      if (!pdfBoxes.length) continue;
+      const { paths, thickness } = marks.markupPaths(markupKind, pdfBoxes);
+      await this.addEditors(pageIndex, [marks.inkData(pageIndex, paths, { color: markupColor, thickness, opacity: 1 })]);
+    }
+  }
+
+  #placing: Placing | null = null;
+
+  /** Fill & Sign: what the next click on a page adds. */
+  #setPlacing(placing: Placing) {
+    this.#placing = placing;
+    const what =
+      placing.kind === "mark"
+        ? { check: "a check mark", cross: "a cross", dot: "a dot" }[placing.mark]
+        : placing.kind === "date"
+          ? "today's date"
+          : placing.signature.kind === "initials"
+            ? "your initials"
+            : "your signature";
+    $("signHint").textContent = `Click on the page to add ${what}`;
+    void this.setTool("sign");
+  }
+
+  async #place(pageIndex: number, x: number, y: number) {
+    const p = this.#placing;
+    if (!p) return;
+    const at = this.#toPdf(pageIndex, x, y);
+    let data: EditorData;
+    if (p.kind === "mark") {
+      data = marks.inkData(pageIndex, marks.markPaths(p.mark, at, 12), {
+        color: "#000000",
+        thickness: p.mark === "dot" ? 4 : 1.5,
+        opacity: 1,
+      });
+    } else if (p.kind === "date") {
+      data = marks.textData(pageIndex, marks.today(), at, 12, "#000000");
+    } else {
+      // Signatures at most 160 × 48 points, initials 64 × 32, keeping their shape.
+      const sig = p.signature;
+      const [maxW, maxH] = sig.kind === "initials" ? [64, 32] : [160, 48];
+      const k = Math.min(maxW / sig.width, maxH / sig.height);
+      data = marks.imageData(pageIndex, sig.url, at, sig.width * k, sig.height * k);
+    }
+    await this.addEditors(pageIndex, [data]);
+  }
+
+  #wireSignMenu() {
+    const button = document.querySelector<HTMLElement>('.toolbar .tool[data-tool="sign"]')!;
+    const item = (label: string, data: Record<string, string>) => {
+      const b = Object.assign(document.createElement("button"), { type: "button", textContent: label });
+      b.setAttribute("role", "menuitem");
+      Object.assign(b.dataset, data);
+      return b;
+    };
+    wireMenu(button, {
+      beforeOpen: (menu) => {
+        const saved = savedSignatures().map((sig, i) => {
+          const b = item("", { act: "saved", index: String(i) });
+          // Sized now, so the menu is placed knowing its width.
+          const k = Math.min(1, 44 / sig.height, 220 / sig.width);
+          const img = Object.assign(document.createElement("img"), {
+            src: sig.url,
+            alt: sig.kind === "initials" ? "Saved initials" : "Saved signature",
+            width: Math.round(sig.width * k),
+            height: Math.round(sig.height * k),
+          });
+          b.append(img);
+          b.classList.add("signature-item");
+          return b;
+        });
+        const sep = () => Object.assign(document.createElement("hr"), { role: "separator" });
+        menu.replaceChildren(
+          ...saved,
+          item("Add signature…", { act: "new", kind: "signature" }),
+          item("Add initials…", { act: "new", kind: "initials" }),
+          sep(),
+          item("✓  Check mark", { act: "mark", mark: "check" }),
+          item("✗  Cross", { act: "mark", mark: "cross" }),
+          item("•  Dot", { act: "mark", mark: "dot" }),
+          item(`Date (${marks.today()})`, { act: "date" }),
+          ...(saved.length ? [sep(), item("Forget saved signatures", { act: "forget" })] : []),
+        );
+      },
+      choose: async (el) => {
+        const { act } = el.dataset;
+        if (!this.doc) return;
+        if (act === "saved") {
+          const sig = savedSignatures()[Number(el.dataset.index)];
+          if (sig) this.#setPlacing({ kind: "image", signature: sig });
+        } else if (act === "new") {
+          const sig = await askSignature(el.dataset.kind as "signature" | "initials", showDialog);
+          if (sig) this.#setPlacing({ kind: "image", signature: sig });
+        } else if (act === "mark") this.#setPlacing({ kind: "mark", mark: el.dataset.mark as marks.Mark });
+        else if (act === "date") this.#setPlacing({ kind: "date" });
+        else if (act === "forget") {
+          forgetSignatures();
+          toast("Saved signatures forgotten");
+        }
+      },
+    });
   }
 
   // ------------------------------------------------------------ rendering
@@ -965,13 +1303,20 @@ export class App {
       o.hidden = !o.dataset.for!.split(" ").includes(this.#tool);
     }
     const shown = this.#shown;
-    if (this.#tool === "text" || this.#tool === "ink") {
-      $<HTMLInputElement>("optColor").value = normalizeHex(this.#tool === "text" ? shown.textColor : shown.inkColor);
-    }
+    const tool = this.#tool;
+    const colorKey = COLOR_KEY[tool];
+    if (colorKey) $<HTMLInputElement>("optColor").value = normalizeHex(String(shown[colorKey]));
     $<HTMLInputElement>("optFontSize").value = String(shown.textSize);
-    $<HTMLInputElement>("optThickness").value = String(shown.inkThickness);
-    $<HTMLInputElement>("optOpacity").value = String(shown.inkOpacity);
+    $<HTMLInputElement>("optThickness").value = String(shown[WIDTH_KEY[tool] ?? "inkThickness"]);
+    $<HTMLInputElement>("optOpacity").value = String(shown[OPACITY_KEY[tool] ?? "inkOpacity"]);
     $<HTMLInputElement>("optHlThickness").value = String(shown.highlightThickness);
+    for (const [selector, value] of [["[data-shape]", shown.shapeKind], ["[data-markup]", shown.markupKind]] as const) {
+      for (const b of document.querySelectorAll<HTMLElement>(`#toolOptions ${selector}`)) {
+        const on = (b.dataset.shape ?? b.dataset.markup) === value;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-checked", String(on));
+      }
+    }
     for (const s of document.querySelectorAll<HTMLElement>("#toolOptions .swatch")) {
       const on = s.dataset.color!.toLowerCase() === shown.highlightColor.toLowerCase();
       s.classList.toggle("active", on);
@@ -1197,9 +1542,14 @@ export class App {
     });
     bus.on("switchannotationeditormode", (evt: { mode: number }) => {
       // Requests from pdf.js itself, e.g. double-clicking an existing annotation.
+      // Not for what the app adds itself (pdf.js selects new editors, an image again once
+      // it loads), nor while a page tool has the pointer (no editor can be double-clicked then).
+      if (this.#adding || POINTER_TOOLS.has(this.#tool)) return;
       this.viewer.annotationEditorMode = evt;
     });
     bus.on("annotationeditormodechanged", ({ mode }: { mode: number }) => {
+      // The tools handled here run in pdf.js's plain mode: stay in them.
+      if (mode === T.NONE && MODE[this.#tool] === T.NONE) return;
       this.#tool = TOOL_OF_MODE.get(mode) ?? "none";
       this.#renderTool();
     });
@@ -1243,26 +1593,32 @@ export class App {
     on("pgSplit", () => this.split());
     on("pgDelete", () => this.deletePages());
 
-    for (const b of document.querySelectorAll<HTMLElement>(".toolbar .tool")) {
+    for (const b of document.querySelectorAll<HTMLElement>(".toolbar .tool:not([aria-controls])")) {
       b.addEventListener("click", () => void this.setTool(b.dataset.tool as Tool));
     }
     for (const s of document.querySelectorAll<HTMLElement>("#toolOptions .swatch")) {
       s.addEventListener("click", () => this.#setParam("highlightColor", s.dataset.color!));
     }
     $<HTMLInputElement>("optColor").addEventListener("input", (e) => {
-      const color = (e.target as HTMLInputElement).value;
-      if (this.#tool === "text") this.#setParam("textColor", color);
-      else if (this.#tool === "ink") this.#setParam("inkColor", color);
+      const key = COLOR_KEY[this.#tool];
+      if (key) this.#setParam(key, (e.target as HTMLInputElement).value);
     });
-    const num = (id: string, key: keyof ToolParams) =>
+    const num = (id: string, key: (tool: Tool) => keyof ToolParams | undefined) =>
       $<HTMLInputElement>(id).addEventListener("input", (e) => {
         const v = Number((e.target as HTMLInputElement).value);
-        if (Number.isFinite(v) && v > 0) this.#setParam(key, v);
+        const k = key(this.#tool);
+        if (k && Number.isFinite(v) && v > 0) this.#setParam(k, v);
       });
-    num("optFontSize", "textSize");
-    num("optThickness", "inkThickness");
-    num("optOpacity", "inkOpacity");
-    num("optHlThickness", "highlightThickness");
+    num("optFontSize", () => "textSize");
+    num("optThickness", (tool) => WIDTH_KEY[tool]);
+    num("optOpacity", (tool) => OPACITY_KEY[tool]);
+    num("optHlThickness", () => "highlightThickness");
+    for (const b of document.querySelectorAll<HTMLElement>("#toolOptions [data-shape]")) {
+      b.addEventListener("click", () => this.#setParam("shapeKind", b.dataset.shape!));
+    }
+    for (const b of document.querySelectorAll<HTMLElement>("#toolOptions [data-markup]")) {
+      b.addEventListener("click", () => this.#setParam("markupKind", b.dataset.markup!));
+    }
 
     on("btnBack", () => this.nav.back());
     on("btnForward", () => this.nav.forward());
@@ -1488,7 +1844,8 @@ export class App {
       if (e.key === "F4") return handled(), this.#setSidebar(!$("app").classList.contains("sidebar-open"));
       if (typing) return;
 
-      const editorOwnsUndo = this.#tool !== "none";
+      // In pdf.js's own editing modes its keyboard handling undoes annotation edits.
+      const editorOwnsUndo = MODE[this.#tool] !== T.NONE;
       if (mod && key === "z" && !e.shiftKey) {
         if (editorOwnsUndo && this.#editor.hasSomethingToUndo) return; // pdf.js handles it
         return handled(), void this.undo();
@@ -1501,7 +1858,11 @@ export class App {
       if (inThumbs && mod && key === "d") return handled(), void this.duplicatePages();
       if (e.key === "Escape") {
         if (!$("findbar").hidden) return handled(), this.#closeFind();
-        if (this.#tool !== "none" && !this.#editor.hasSelectedEditor) return handled(), void this.setTool("none");
+        // In pdf.js's editing modes Escape first deselects; the tools handled here have nothing to deselect.
+        if (this.#tool !== "none" && (MODE[this.#tool] === T.NONE || !this.#editor.hasSelectedEditor)) {
+          if (MODE[this.#tool] === T.NONE) this.#ui?.unselectAll();
+          return handled(), void this.setTool("none");
+        }
         if (inThumbs) return handled(), this.thumbs.clearSelection();
       }
       if (!mod && !e.altKey && TOOL_KEYS[key] && !this.#editor.hasSelectedEditor) {
