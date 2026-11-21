@@ -62,7 +62,10 @@ export class Thumbnails {
     return this.#items.length;
   }
 
-  async setDocument(doc: PDFDocumentProxy | null, opts: { current?: number; selection?: number[] } = {}) {
+  async setDocument(
+    doc: PDFDocumentProxy | null,
+    opts: { current?: number; selection?: number[]; labels?: string[] | null } = {},
+  ) {
     this.#generation++;
     this.#queue = [];
     this.#observer.disconnect();
@@ -88,8 +91,10 @@ export class Thumbnails {
       item.draggable = true;
       item.tabIndex = -1;
       item.setAttribute("role", "option");
-      item.setAttribute("aria-label", `Page ${i + 1}`);
-      item.innerHTML = `<div class="thumb-page" style="aspect-ratio:${1 / aspect}"></div><span class="thumb-label">${i + 1}</span>`;
+      const label = opts.labels?.[i];
+      item.setAttribute("aria-label", label ? `Page ${i + 1} (${label})` : `Page ${i + 1}`);
+      item.innerHTML = `<div class="thumb-page" style="aspect-ratio:${1 / aspect}"></div><span class="thumb-label"></span>`;
+      item.lastElementChild!.textContent = label ?? String(i + 1);
       frag.append(item);
       this.#items.push(item);
       this.#observer.observe(item);

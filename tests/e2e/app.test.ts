@@ -266,11 +266,13 @@ test("merges the open document, unsaved changes and all, with other PDFs", async
   await poll(() => mergeList(app)).toEqual(["sample.pdf", "other.pdf"]);
 
   await app.click("#mergeOk");
-  // The merge replaces the open document, which has unsaved changes.
-  await poll(() => isOpen(app, "#confirmDialog")).toBe(true);
-  await app.click("#confirmOk");
+  // The merged document opens in a new tab; the open one stays open, unsaved changes and all.
   await opened(app, 7);
   expect(await app.text("#docTitle")).toContain("sample-merged.pdf");
+  expect(await app.exec(`return [...document.querySelectorAll("#tabbar .doc-tab .name")].map((t) => t.textContent)`)).toEqual([
+    "sample.pdf",
+    "sample-merged.pdf",
+  ]);
 
   const out = join(dir, "merged.pdf");
   answer({ save: out });
@@ -520,6 +522,12 @@ test("opens password-protected PDFs and keeps them encrypted", async () => {
   await app.fill("#passwordInput", "secret");
   await app.press(Key.Enter);
   await opened(app);
+  // Properties say so.
+  await app.click("#btnProps");
+  await poll(() => app.exec(`return [...document.querySelectorAll("#propsFacts dd")].map((d) => d.textContent)`)).toContain(
+    "Encrypted, password to open",
+  );
+  await app.click('#propsDialog button[value="cancel"]');
 
   await app.click(thumb(1));
   await app.click("#pgDelete");

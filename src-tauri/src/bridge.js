@@ -26,12 +26,12 @@
       const ext = path.split(".").pop().toLowerCase();
       return { name: baseName(path), type: IMAGE_TYPES[ext] ?? `image/${ext}`, bytes: await readBytes(path) };
     },
-    async saveAs(suggestedName) {
-      const path = await invoke("save_as", { suggestedName: String(suggestedName) });
+    async saveAs(suggestedName, kind) {
+      const path = await invoke("save_as", { suggestedName: String(suggestedName), kind: String(kind ?? "pdf") });
       return path ? { name: baseName(path), path } : null;
     },
-    async saveToFolder(names) {
-      const chosen = await invoke("save_to_folder", { names: Array.from(names, String) });
+    async saveToFolder(names, kind) {
+      const chosen = await invoke("save_to_folder", { names: Array.from(names, String), kind: String(kind ?? "pdf") });
       if (!chosen) return null;
       const [folder, files] = chosen;
       return {
@@ -39,6 +39,19 @@
         files: files.map(([path, exists]) => ({ name: baseName(path), path, exists })),
       };
     },
+    setFullscreen: (on) => invoke("set_fullscreen", { on: !!on }),
+    recentFiles: async () =>
+      (await invoke("recent_files")).map(([path, page, zoom]) => ({ name: baseName(path), path, page, zoom })),
+    addRecent: (path, place) =>
+      invoke("add_recent", {
+        path: String(path),
+        page: Number.isInteger(place?.page) && place.page > 0 ? place.page : null,
+        zoom: typeof place?.zoom === "string" ? place.zoom : null,
+      }),
+    async openRecent(path) {
+      return readPdf(await invoke("open_recent", { path: String(path) }));
+    },
+    forgetRecent: () => invoke("forget_recent"),
     // The bytes travel as the raw request body; the path goes in a header.
     write: (path, bytes) => invoke("write_file", bytes, { headers: { "x-path": encodeURIComponent(String(path)) } }),
   };

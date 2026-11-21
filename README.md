@@ -2,18 +2,25 @@
 
 An open source PDF viewer and editor for the desktop. It is a small native app built with [Tauri](https://tauri.app/) that uses the operating system's own web engine, so the Windows build is a single file of about 6–8 MB. Everything happens on your device; files are never uploaded.
 
-![Palimpsest editing a PDF: highlighted text, a drawn ellipse and a text note, with the page list on the left](docs/screenshot.png)
+![Palimpsest with two documents open in tabs: highlighted text, a drawn ellipse and a sticky note on the page, listed in the comments panel on the left](docs/screenshot.png)
 
 ## Features
 
-- **View**: fast rendering, text selection, search (match case / whole words), links, zoom presets and Ctrl+wheel zoom, page thumbnails.
-- **Annotate**: add text, draw, highlight (select text, or draw freely), place images and signature scans. Annotations are saved as standard PDF annotations, so other viewers show them and Palimpsest can edit them again later.
-- **Fill forms**: AcroForm fields render as editable inputs and their values are saved into the file.
+- **View**: fast rendering, text selection, search (match case / whole words), links, zoom presets and Ctrl+wheel zoom, a hand tool, zoom to a dragged box. Page layouts: continuous, single page, wrapped, horizontal, and two-page spreads with or without a cover page. Rotate the view without changing the file. Presentation mode: full screen, a page at a time.
+- **Navigate**: page thumbnails, the document's bookmarks as a tree, Back and Forward after following a link or bookmark, page labels ("iv", "A-3") in the page box.
+- **Tabs**: several documents in one window, each keeping its place, zoom, unsaved edits and undo history.
+- **Annotate**: add text, sticky notes, draw, shapes (rectangle, ellipse, line, arrow), highlight (select text, or draw freely), underline, strike out or squiggle text, place images. Annotations are saved as standard PDF annotations, so other viewers show them and Palimpsest can edit them again later.
+- **Comments**: a panel lists every comment and markup by page, with its author and date; edit a comment or delete it from there.
+- **Fill & Sign**: check marks, crosses, dots, today's date, and signatures or initials typed or drawn with the mouse, pen or finger. Signatures can be kept on this device (in the app's own storage, nowhere else) for next time.
+- **Fill forms**: AcroForm fields render as editable inputs and their values are saved into the file. Form JavaScript runs (calculated totals, formatting, validation) in pdf.js's sandbox.
 - **Organise pages**: rotate, delete, duplicate, reorder by dragging, insert blank pages, insert pages from other PDFs (drop them on the page list), save a selection as a new PDF.
 - **Split and merge**: split a document into several PDFs, every N pages or by page ranges such as `1-3, 4, 5-`, saved to a folder you choose. Merge PDFs, in an order you set, into a new document; the open document can be one of them, unsaved edits included. Password-protected files can be merged after you enter their password; the merged document has no password.
-- **Document properties**: edit title, author, subject and keywords.
+- **Attachments and layers**: save files attached to a PDF; show or hide its optional-content layers.
+- **Export and copy**: export pages as PNG or JPEG at 72, 150 or 300 dpi; copy a dragged box of a page to the clipboard as an image.
+- **Print**: all pages, the current or selected pages, or a range; with or without comments; fitted to the paper or at actual size.
+- **Document properties**: edit title, author, subject and keywords; see dates, security and permissions, forms, digital signatures, tagging, and the fonts used.
 - **Undo/redo** across both annotation edits and page operations.
-- **Save in place**: a file opened from disk, from the command line or with "Open with" is written back to the same file. Save as and print are also included.
+- **Save in place**: a file opened from disk, from the command line or with "Open with" is written back to the same file. Recently opened files are listed on the start screen and reopen where you left off.
 - **Works offline**, with light and dark themes.
 
 ## Download (Windows)
@@ -70,13 +77,18 @@ The [Release workflow](.github/workflows/release.yml) runs on a Windows runner. 
 | Action | Keys |
 | --- | --- |
 | Open / Save / Save as / Print | Ctrl+O / Ctrl+S / Ctrl+Shift+S / Ctrl+P |
+| Next / previous tab, close tab | Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+W |
 | Find | Ctrl+F, then Enter / Shift+Enter |
 | Zoom in / out / reset | Ctrl+= / Ctrl+− / Ctrl+0 (or Ctrl+wheel) |
+| Rotate the view clockwise / counterclockwise | Ctrl+Shift+= / Ctrl+Shift+− |
+| Back / Forward | Alt+← / Alt+→ |
+| Presentation mode (Esc leaves it) | Ctrl+L |
 | Undo / Redo | Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y |
-| Tools: select, text, draw, highlight, image | V, T, D, H, I (Esc returns to select) |
+| Tools: select, zoom to area, text, note, draw, shapes | V, Z, T, N, D, S |
+| Tools: highlight, underline/strike out, image, Fill & Sign | H, U, I, G (Esc returns to select) |
 | Page list: move, extend selection, select all | Arrows, Shift+Arrows, Ctrl+A |
 | Page list: delete / duplicate selected | Delete / Ctrl+D |
-| Toggle page list | F4 |
+| Toggle sidebar | F4 |
 
 ## How it works
 
@@ -85,18 +97,27 @@ The [Release workflow](.github/workflows/release.yml) runs on a Windows runner. 
 | Rendering, text layer, search, links, forms | [pdf.js](https://github.com/mozilla/pdf.js) viewer component (`pdfjs-dist/web/pdf_viewer.mjs`) |
 | Annotation editing and saving | pdf.js annotation editor; `saveDocument()` appends edits as an incremental update |
 | Reorder, delete, duplicate, insert, extract, split, merge | pdf.js page assembler (`PDFDocumentProxy.extractPages`), which writes a new file containing only reachable objects, so deleted pages are really gone. It keeps forms, outlines, named destinations, page labels and the structure tree. |
-| Rotation, metadata, blank pages | [pdf-lib](https://github.com/Hopding/pdf-lib) |
+| Shapes, text markup, Fill & Sign marks and signatures | pdf.js editors restored from the data pdf.js copies to its clipboard (`src/marks.ts`): ink for shapes, markup and marks, text for the date, an image for a signature |
+| Form JavaScript | pdf.js scripting manager and its sandbox (QuickJS compiled to WebAssembly) |
+| Rotation, metadata, blank pages, sticky notes, comment edits | [pdf-lib](https://github.com/Hopding/pdf-lib) |
 | Desktop shell | [Tauri](https://tauri.app/) (`src-tauri/`): the web app in `dist/` is embedded in the binary and served from the app's own origin with a strict CSP. The page gets no Tauri APIs; it reaches files only through a narrow bridge (`window.palimpsestDesktop`) backed by Rust commands and native dialogs. |
 | Web engine | The system webview: WebView2 (Chromium-based Edge) on Windows, WKWebView on macOS, WebKitGTK on Linux |
 
-The page can only read and write files the user picked in a dialog or passed on the command line. Splitting asks for a folder, and the shell then allows writing only the named PDFs there. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
+The page can only read and write files the user picked in a dialog or passed on the command line. Splitting (or exporting images) asks for a folder, and the shell then allows writing only the named PDFs (or images) there. The shell keeps the recent files list, with where the reader was in each file, in the app's data folder; the page can add only a file it may already use and open only what is on the list. Saves go to a temporary file beside the target and are then renamed over it, so a failed save never truncates the original.
 
-A page operation first folds pending annotations and form values into the current bytes, transforms them, and reloads the result. Each step keeps a snapshot for undo. Annotation edits between page operations use pdf.js's own undo stack.
+A page operation first folds pending annotations and form values into the current bytes, transforms them, and reloads the result. Each step keeps a snapshot for undo. Annotation edits between page operations use pdf.js's own undo stack. There is one viewer: a tab that is not showing keeps its document as the bytes it would be saved as, its pending edits folded in and kept as one undo step.
 
 ```
 src/
-  app.ts          UI controller: viewer wiring, tools, page ops, save, undo
+  app.ts          UI controller: viewer wiring, tools, tabs, page ops, save, undo
   pageops.ts      page plans → pdf.js extractPages(); pdf-lib edits
+  comments.ts     sticky notes and comment edits (pdf-lib)
+  marks.ts        shapes, text markup and Fill & Sign marks as pdf.js editor data
+  signatures.ts   typed and drawn signatures, kept on this device
+  panels.ts       sidebar panels: bookmarks, attachments, layers, comments
+  navhistory.ts   Back / Forward through link and bookmark jumps
+  menu.ts         toolbar drop-down menus
+  docinfo.ts      document properties: permissions, fonts
   thumbnails.ts   page list: lazy thumbnails, selection, drag and drop
   files.ts        open/save through the desktop bridge
   desktop.ts      types for the desktop bridge
@@ -131,12 +152,17 @@ The end-to-end tests answer the app's file dialogs through the test hooks, drive
 - Text that is already in the PDF can't be edited in place. You can annotate over it, or cover it with an image.
 - Reorganising pages (delete, move, insert, duplicate) rebuilds the file without optional-content layers, the document-level XMP metadata, and document JavaScript.
 - Rotation and property edits use pdf-lib, which can't write encrypted PDFs. These actions show an error on encrypted files. Opening (with the password), annotating, form filling and page reorganisation still work, and the saved file stays encrypted.
-- Signatures are visual (drawn or image) only. There is no cryptographic signing, and changing a digitally signed PDF flags or invalidates its signatures.
+- Signatures are visual (typed, drawn or an image) only. There is no cryptographic signing, and changing a digitally signed PDF flags or invalidates its signatures.
 - The annotation tools are unavailable on pure XFA forms.
 - `pdfjs-dist` is pinned to an exact version because the app uses its viewer and page-assembly APIs.
 - macOS is untested: there is no WebDriver for its webview. Printing there goes through the native print sheet, and files opened from Finder are not handled yet (macOS passes them as an event, not on the command line).
 - On Linux, printing uses the paper size chosen in the print dialog rather than the PDF's page size.
 - Dragging pages in the page list is tested by dispatching the page's drag events; the system's own drag session can't be automated.
+- Shapes, underline, strike-out and Fill & Sign marks are saved as Ink annotations (and the date as a FreeText annotation), because pdf.js has editors only for those types. Other readers show them as drawn, but list them as drawings rather than as rectangles or underlines.
+- Sticky notes and comment edits are made with pdf-lib, so, like rotation, they are not available on encrypted files, and each one reloads the document.
+- Switching tabs folds the tab's pending annotation edits into one undo step.
+- Opening a file from another launch of the app (or "Open with" while it runs) opens it in a new window, not a tab.
+- Typed signatures use the system's script fonts (Segoe Script on Windows, Snell Roundhand on macOS); where there are none, a plain cursive font.
 
 ## License
 

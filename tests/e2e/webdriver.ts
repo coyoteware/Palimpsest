@@ -6,7 +6,20 @@
  */
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 
-export const Key = { Control: "", Shift: "", Escape: "", Enter: "" } as const;
+/** WebDriver key codes for keys that are not characters. */
+export const Key = {
+  Control: "\uE009",
+  Shift: "\uE008",
+  Alt: "\uE00A",
+  Escape: "\uE00C",
+  Enter: "\uE007",
+  Space: "\uE00D",
+  Tab: "\uE004",
+  ArrowLeft: "\uE012",
+  ArrowUp: "\uE013",
+  ArrowRight: "\uE014",
+  ArrowDown: "\uE015",
+} as const;
 
 type Json = Record<string, unknown>;
 type Point = readonly [number, number];
@@ -47,6 +60,8 @@ const pause = { type: "pause", duration: 0 };
 
 export class Session {
   readonly #base: string;
+  /** Run before each click, to wait until the app can take one (set by the harness). */
+  settle: () => Promise<void> = async () => {};
 
   private constructor(driver: string, id: string) {
     this.#base = `${driver}/session/${id}`;
@@ -94,7 +109,11 @@ export class Session {
   }
 
   async click(css: string) {
-    await this.#cmd("POST", `/element/${await this.#find(css)}/click`, {});
+    await this.settle();
+    const el = await this.#find(css);
+    // The driver scrolls only elements outside the window, not ones hidden in a scrolled list.
+    await this.exec("arguments[0].scrollIntoView({ block: 'nearest', inline: 'nearest' })", { [ELEMENT]: el });
+    await this.#cmd("POST", `/element/${el}/click`, {});
   }
 
   /** Type into an element, as the user would. */
@@ -150,6 +169,7 @@ export class Session {
 
   /** Click at a point (viewport coordinates), optionally holding a modifier key. */
   async clickAt([x, y]: Point, modifier?: string) {
+    await this.settle();
     const pointer = [
       { type: "pointerMove", x: Math.round(x), y: Math.round(y), origin: "viewport" },
       { type: "pointerDown", button: 0 },
@@ -196,6 +216,16 @@ export class Session {
 
   visible(css: string) {
     return this.exec<boolean>("return !!document.querySelector(arguments[0])?.checkVisibility()", css);
+  }
+
+  /** Resize the window (CSS pixels). */
+  async resize(width: number, height: number) {
+    await this.#cmd("POST", "/window/rect", { width, height });
+  }
+
+  /** A PNG of the window, for looking at a failure. */
+  async screenshot() {
+    return Buffer.from(await this.#cmd<string>("GET", "/screenshot"), "base64");
   }
 
   /** End the session; the driver quits the app. Best effort: the app may already be gone. */

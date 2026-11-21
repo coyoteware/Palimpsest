@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::path::PathBuf;
 
-fn dir() -> Option<PathBuf> {
+pub fn dir() -> Option<PathBuf> {
     std::env::var_os("PALIMPSEST_E2E_DIR").map(PathBuf::from)
 }
 

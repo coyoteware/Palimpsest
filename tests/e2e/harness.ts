@@ -4,11 +4,12 @@
  * pointing at places on a page. The app is a test build (`--features e2e`,
  * see src-tauri/src/e2e.rs); tests/e2e/setup.ts starts the driver.
  */
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, inject } from "vitest";
 import { inspect, sampleFile } from "../fixtures/pdf";
+import { richPdf } from "../fixtures/rich";
 import { Session } from "./webdriver";
 
 const hooks = inject("hooks");
@@ -25,6 +26,10 @@ export async function launch(...files: string[]) {
   const started = () =>
     app.exec<boolean>("return document.readyState === 'complete' && !!window.palimpsest").catch(() => false);
   await poll(started, STARTUP).toBe(true);
+  // While the app is busy (saving, reloading after a page operation) an overlay takes clicks, as it does
+  // from the user; a dialog it opens meanwhile (a password) sits above it.
+  app.settle = () =>
+    poll(() => app.exec<boolean>("return !!document.querySelector('dialog[open]') || (document.querySelector('#busy')?.hidden ?? true)")).toBe(true);
   return app;
 }
 
@@ -39,11 +44,15 @@ export function useApp() {
   beforeEach(() => {
     answer({});
     writeFileSync(join(hooks, "log.jsonl"), "");
+    // Test builds keep the recent files list here (see main.rs).
+    rmSync(join(hooks, "recent.txt"), { force: true });
   });
   afterEach(async () => {
     if (!current) return;
     // Recorded by test builds only; a release build (PALIMPSEST_APP) has no hook.
     const errors = (await current.exec<string[] | null>("return window.__e2eErrors ?? null")) ?? [];
+    // Settings live in the webview's storage, which outlasts the app: start each test afresh.
+    await current.exec("localStorage.clear()").catch(() => {});
     await current.end();
     current = null;
     expect(errors, "errors in the page").toEqual([]);
@@ -62,6 +71,7 @@ export type ShellEvent = {
   open?: string;
   print?: string;
   closed?: string;
+  fullscreen?: boolean;
 };
 
 /** What the shell did: dialogs, suggested file names, links opened, print requests, windows closed. */
@@ -85,6 +95,13 @@ export const workDir = () => mkdtempSync(join(tmpdir(), "palimpsest-e2e-"));
 export async function sampleIn(dir: string, name = "sample.pdf") {
   const path = join(dir, name);
   copyFileSync(await sampleFile(), path);
+  return path;
+}
+
+/** The rich sample (tests/fixtures/rich.ts): labels, bookmarks, a link, an attachment, a layer. */
+export async function richIn(dir: string, name = "rich.pdf") {
+  const path = join(dir, name);
+  writeFileSync(path, await richPdf());
   return path;
 }
 

@@ -11,8 +11,9 @@
     <div id="app" class="no-doc">
       <header class="toolbar" role="toolbar" aria-label="Main">
         <div class="group">
-          <button id="btnSidebar" class="icon needs-doc" data-icon="sidebar" title="Pages panel (F4)" aria-label="Toggle pages panel" aria-pressed="true"></button>
+          <button id="btnSidebar" class="icon needs-doc" data-icon="sidebar" title="Sidebar (F4)" aria-label="Toggle sidebar" aria-pressed="true"></button>
           <button id="btnOpen" class="icon" data-icon="open" title="Open (Ctrl+O)" aria-label="Open"></button>
+          <button id="btnRecent" class="icon" data-icon="recent" title="Recent files" aria-label="Recent files" aria-controls="recentMenu"></button>
           <button id="btnMerge" class="icon" data-icon="merge" title="Merge PDFs…" aria-label="Merge PDFs"></button>
           <button id="btnSave" class="icon needs-doc" data-icon="save" title="Save (Ctrl+S)" aria-label="Save"></button>
           <button id="btnSaveAs" class="icon needs-doc" data-icon="saveAs" title="Save as… (Ctrl+Shift+S)" aria-label="Save as"></button>
@@ -25,6 +26,8 @@
           <input id="pageNumber" class="page-input" type="text" inputmode="numeric" aria-label="Page number" value="1" />
           <span class="muted" id="pageCount">/ 0</span>
           <button id="btnNext" class="icon" data-icon="down" title="Next page" aria-label="Next page"></button>
+          <button id="btnBack" class="icon" data-icon="back" title="Back (Alt+←)" aria-label="Back" disabled></button>
+          <button id="btnForward" class="icon" data-icon="forward" title="Forward (Alt+→)" aria-label="Forward" disabled></button>
         </div>
 
         <div class="group needs-doc" aria-label="Zoom">
@@ -45,18 +48,37 @@
             <option value="custom" id="zoomCustom" hidden disabled></option>
           </select>
           <button id="btnZoomIn" class="icon" data-icon="plus" title="Zoom in (Ctrl+=)" aria-label="Zoom in"></button>
+          <button id="btnView" class="icon" data-icon="layout" title="View options" aria-label="View options" aria-controls="viewMenu"></button>
         </div>
 
         <div class="group tools needs-doc" role="radiogroup" aria-label="Editing tools">
           <button class="icon tool" data-tool="none" data-icon="pointer" title="Select (V)" aria-label="Select" role="radio" aria-checked="true"></button>
+          <button class="icon tool" data-tool="hand" data-icon="hand" title="Hand: drag to scroll" aria-label="Hand" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="zoom" data-icon="zoomArea" title="Zoom to area (Z): drag a box, click to zoom in, Alt+click to zoom out" aria-label="Zoom to area" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="snapshot" data-icon="camera" title="Snapshot: drag a box to copy it as an image" aria-label="Snapshot" role="radio" aria-checked="false"></button>
           <button class="icon tool" data-tool="text" data-icon="text" title="Add text (T)" aria-label="Add text" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="note" data-icon="note" title="Add note (N)" aria-label="Add note" role="radio" aria-checked="false"></button>
           <button class="icon tool" data-tool="ink" data-icon="pen" title="Draw (D)" aria-label="Draw" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="shape" data-icon="shapes" title="Shapes (S)" aria-label="Shapes" role="radio" aria-checked="false"></button>
           <button class="icon tool" data-tool="highlight" data-icon="highlight" title="Highlight (H)" aria-label="Highlight" role="radio" aria-checked="false"></button>
-          <button class="icon tool" data-tool="image" data-icon="image" title="Add image or signature (I)" aria-label="Add image" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="markup" data-icon="underline" title="Underline, strike out (U)" aria-label="Underline or strike out text" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="image" data-icon="image" title="Add image (I)" aria-label="Add image" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="sign" data-icon="signature" title="Fill &amp; Sign (G)" aria-label="Fill and sign" role="radio" aria-checked="false" aria-controls="signMenu"></button>
         </div>
 
         <div class="group tool-options needs-doc" id="toolOptions" aria-label="Tool options">
-          <label class="opt" data-for="text ink" title="Color">
+          <div class="opt seg" data-for="shape" role="radiogroup" aria-label="Shape">
+            <button data-shape="rect" data-icon="rect" class="icon" role="radio" title="Rectangle" aria-label="Rectangle"></button>
+            <button data-shape="ellipse" data-icon="ellipse" class="icon" role="radio" title="Ellipse" aria-label="Ellipse"></button>
+            <button data-shape="line" data-icon="line" class="icon" role="radio" title="Line" aria-label="Line"></button>
+            <button data-shape="arrow" data-icon="arrow" class="icon" role="radio" title="Arrow" aria-label="Arrow"></button>
+          </div>
+          <div class="opt seg" data-for="markup" role="radiogroup" aria-label="Markup">
+            <button data-markup="underline" data-icon="underline" class="icon" role="radio" title="Underline" aria-label="Underline"></button>
+            <button data-markup="strikeout" data-icon="strikeout" class="icon" role="radio" title="Strike out" aria-label="Strike out"></button>
+            <button data-markup="squiggly" data-icon="squiggly" class="icon" role="radio" title="Squiggly underline" aria-label="Squiggly underline"></button>
+          </div>
+          <label class="opt" data-for="text ink shape markup" title="Color">
             <input type="color" id="optColor" value="#000000" aria-label="Color" />
           </label>
           <div class="opt swatches" data-for="highlight" role="radiogroup" aria-label="Highlight color">
@@ -67,10 +89,15 @@
             <button class="swatch" data-color="#FF4F5F" style="--c:#FF4F5F" title="Red" aria-label="Red"></button>
           </div>
           <label class="opt" data-for="text">Size <input type="number" id="optFontSize" min="5" max="100" value="12" /></label>
-          <label class="opt" data-for="ink">Width <input type="range" id="optThickness" min="1" max="20" value="2" /></label>
-          <label class="opt" data-for="ink">Opacity <input type="range" id="optOpacity" min="10" max="100" value="100" /></label>
+          <label class="opt" data-for="ink shape">Width <input type="range" id="optThickness" min="1" max="20" value="2" /></label>
+          <label class="opt" data-for="ink shape">Opacity <input type="range" id="optOpacity" min="10" max="100" value="100" /></label>
           <label class="opt" data-for="highlight">Free width <input type="range" id="optHlThickness" min="8" max="24" value="12" /></label>
           <button class="opt text-button" data-for="image" id="btnAddImage">Choose image…</button>
+          <span class="opt muted" data-for="sign" id="signHint" aria-live="polite"></span>
+          <span class="opt muted" data-for="markup">Select text to mark it</span>
+          <span class="opt muted" data-for="note">Click on the page to add a note</span>
+          <span class="opt muted" data-for="zoom">Drag a box to zoom to it · click to zoom in · Alt+click to zoom out</span>
+          <span class="opt muted" data-for="snapshot">Drag a box to copy it as an image</span>
         </div>
 
         <div class="spacer"></div>
@@ -83,6 +110,8 @@
         </div>
       </header>
 
+      <div id="tabbar" class="tabbar" role="tablist" aria-label="Open documents" hidden></div>
+
       <div id="findbar" class="findbar" hidden role="search">
         <input id="findInput" type="search" placeholder="Find in document" aria-label="Find in document" />
         <button id="findPrev" class="icon" data-icon="up" title="Previous match (Shift+Enter)" aria-label="Previous match"></button>
@@ -93,19 +122,44 @@
         <button id="findClose" class="icon" data-icon="close" title="Close (Esc)" aria-label="Close find bar"></button>
       </div>
 
-      <aside id="sidebar" aria-label="Pages">
-        <div class="page-actions" role="toolbar" aria-label="Page actions">
-          <button id="pgRotL" class="icon" data-icon="rotateCcw" title="Rotate left" aria-label="Rotate left"></button>
-          <button id="pgRotR" class="icon" data-icon="rotateCw" title="Rotate right" aria-label="Rotate right"></button>
-          <button id="pgDup" class="icon" data-icon="duplicate" title="Duplicate" aria-label="Duplicate pages"></button>
-          <button id="pgBlank" class="icon" data-icon="blankPage" title="Insert blank page after" aria-label="Insert blank page"></button>
-          <button id="pgInsert" class="icon" data-icon="insertPdf" title="Insert pages from PDF…" aria-label="Insert pages from PDF"></button>
-          <button id="pgExtract" class="icon" data-icon="extract" title="Save selected pages as…" aria-label="Extract pages"></button>
-          <button id="pgSplit" class="icon" data-icon="split" title="Split into files…" aria-label="Split into files"></button>
-          <button id="pgDelete" class="icon danger" data-icon="trash" title="Delete (Del)" aria-label="Delete pages"></button>
+      <aside id="sidebar" aria-label="Sidebar">
+        <div class="panel-tabs" role="tablist" aria-label="Sidebar panels">
+          <button id="tabPages" role="tab" class="icon" data-icon="pages" data-panel="panelPages" aria-controls="panelPages" title="Pages" aria-label="Pages" aria-selected="true"></button>
+          <button id="tabOutline" role="tab" class="icon" data-icon="bookmark" data-panel="panelOutline" aria-controls="panelOutline" title="Bookmarks" aria-label="Bookmarks" aria-selected="false" tabindex="-1"></button>
+          <button id="tabAttachments" role="tab" class="icon" data-icon="paperclip" data-panel="panelAttachments" aria-controls="panelAttachments" title="Attachments" aria-label="Attachments" aria-selected="false" tabindex="-1" hidden></button>
+          <button id="tabComments" role="tab" class="icon" data-icon="comment" data-panel="panelComments" aria-controls="panelComments" title="Comments" aria-label="Comments" aria-selected="false" tabindex="-1"></button>
+          <button id="tabLayers" role="tab" class="icon" data-icon="layers" data-panel="panelLayers" aria-controls="panelLayers" title="Layers" aria-label="Layers" aria-selected="false" tabindex="-1" hidden></button>
         </div>
-        <div id="selectionInfo" class="selection-info muted" aria-live="polite"></div>
-        <div id="thumbs" class="thumbs" role="listbox" aria-label="Pages" aria-multiselectable="true" tabindex="0"></div>
+        <div id="panelPages" class="panel" role="tabpanel" aria-labelledby="tabPages">
+          <div class="page-actions" role="toolbar" aria-label="Page actions">
+            <button id="pgRotL" class="icon" data-icon="rotateCcw" title="Rotate left" aria-label="Rotate left"></button>
+            <button id="pgRotR" class="icon" data-icon="rotateCw" title="Rotate right" aria-label="Rotate right"></button>
+            <button id="pgDup" class="icon" data-icon="duplicate" title="Duplicate" aria-label="Duplicate pages"></button>
+            <button id="pgBlank" class="icon" data-icon="blankPage" title="Insert blank page after" aria-label="Insert blank page"></button>
+            <button id="pgInsert" class="icon" data-icon="insertPdf" title="Insert pages from PDF…" aria-label="Insert pages from PDF"></button>
+            <button id="pgExtract" class="icon" data-icon="extract" title="Save selected pages as…" aria-label="Extract pages"></button>
+            <button id="pgSplit" class="icon" data-icon="split" title="Split into files…" aria-label="Split into files"></button>
+          <button id="pgExport" class="icon" data-icon="exportImage" title="Export as images…" aria-label="Export pages as images"></button>
+            <button id="pgDelete" class="icon danger" data-icon="trash" title="Delete (Del)" aria-label="Delete pages"></button>
+          </div>
+          <div id="selectionInfo" class="selection-info muted" aria-live="polite"></div>
+          <div id="thumbs" class="thumbs" role="listbox" aria-label="Pages" aria-multiselectable="true" tabindex="0"></div>
+        </div>
+        <div id="panelOutline" class="panel" role="tabpanel" aria-labelledby="tabOutline" hidden>
+          <ul id="outlineTree" class="tree" role="tree" aria-label="Bookmarks"></ul>
+          <p id="outlineEmpty" class="panel-empty muted">This document has no bookmarks.</p>
+        </div>
+        <div id="panelAttachments" class="panel" role="tabpanel" aria-labelledby="tabAttachments" hidden>
+          <ul id="attachmentList" class="attachment-list" aria-label="Attached files"></ul>
+        </div>
+        <div id="panelLayers" class="panel" role="tabpanel" aria-labelledby="tabLayers" hidden>
+          <div id="layerList" class="layer-list"></div>
+        </div>
+        <div id="panelComments" class="panel" role="tabpanel" aria-labelledby="tabComments" hidden>
+          <ul id="commentList" class="comment-list" aria-label="Comments"></ul>
+          <p id="commentsEmpty" class="panel-empty muted">No comments yet. Add a note with the note tool (N), or mark up the page.</p>
+        </div>
+        <div id="sidebarResizer" class="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
       </aside>
 
       <main id="main">
@@ -120,12 +174,37 @@
             <button id="btnOpenEmpty" class="primary">Open a PDF</button>
             <p class="hint muted">or drop a file anywhere · Ctrl+O</p>
             <button id="btnMergeEmpty" class="text-button">Merge PDFs…</button>
+            <div id="recentSection" class="recent" hidden>
+              <h2>Recent files</h2>
+              <ul id="recentList" class="recent-list"></ul>
+            </div>
           </div>
         </section>
         <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyLabel"></span></div>
         <div id="dropHint" class="drop-hint" hidden>Drop to open</div>
       </main>
     </div>
+
+    <div id="recentMenu" class="menu recent-menu" role="menu" aria-label="Recent files" hidden></div>
+    <div id="viewMenu" class="menu" role="menu" aria-label="View options" hidden>
+      <div class="menu-label" role="presentation">Page layout</div>
+      <button role="menuitemradio" data-group="scroll" data-value="vertical">Continuous</button>
+      <button role="menuitemradio" data-group="scroll" data-value="page">Single page</button>
+      <button role="menuitemradio" data-group="scroll" data-value="wrapped">Wrapped</button>
+      <button role="menuitemradio" data-group="scroll" data-value="horizontal">Horizontal</button>
+      <hr role="separator" />
+      <div class="menu-label" role="presentation">Two-page view</div>
+      <button role="menuitemradio" data-group="spread" data-value="none">Off</button>
+      <button role="menuitemradio" data-group="spread" data-value="odd">Two pages</button>
+      <button role="menuitemradio" data-group="spread" data-value="even">Two pages, cover page alone</button>
+      <hr role="separator" />
+      <button role="menuitem" data-act="rotateViewCw">Rotate view clockwise <kbd>Ctrl+Shift+=</kbd></button>
+      <button role="menuitem" data-act="rotateViewCcw">Rotate view counterclockwise <kbd>Ctrl+Shift+−</kbd></button>
+      <hr role="separator" />
+      <button role="menuitem" data-act="present">Presentation <kbd>Ctrl+L</kbd></button>
+    </div>
+
+    <div id="signMenu" class="menu sign-menu" role="menu" aria-label="Fill and sign" hidden></div>
 
     <div id="toasts" class="toasts" aria-live="polite"></div>
 
@@ -148,6 +227,10 @@
           <label>Keywords <input id="propKeywords" placeholder="comma, separated" /></label>
         </div>
         <dl id="propsFacts" class="facts"></dl>
+        <details id="propsFonts" class="fonts">
+          <summary>Fonts</summary>
+          <ul id="fontList" class="font-list"></ul>
+        </details>
         <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary">Apply</button></menu>
       </form>
     </dialog>
@@ -179,6 +262,83 @@
         <ol id="mergeList" class="file-list" aria-label="Files to merge"></ol>
         <button type="button" id="mergeAdd" class="text-button">Add files…</button>
         <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="mergeOk">Merge</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="printDialog" aria-labelledby="printTitle">
+      <form method="dialog">
+        <h2 id="printTitle">Print</h2>
+        <fieldset class="choices">
+          <legend>Pages</legend>
+          <label class="choice"><input type="radio" name="printPages" value="all" checked /> All <span id="printAllCount" class="muted"></span></label>
+          <label class="choice"><input type="radio" name="printPages" value="current" /> Current page <span id="printCurrentPage" class="muted"></span></label>
+          <label class="choice" id="printSelectedChoice"><input type="radio" name="printPages" value="selected" /> Selected pages <span id="printSelectedCount" class="muted"></span></label>
+          <label class="choice"><input type="radio" name="printPages" value="range" /> Pages <input id="printRange" placeholder="1-3, 5, 8-" autocomplete="off" spellcheck="false" aria-label="Pages to print" /></label>
+        </fieldset>
+        <fieldset class="choices">
+          <legend>Size</legend>
+          <label class="choice"><input type="radio" name="printSize" value="fit" checked /> Fit to the paper</label>
+          <label class="choice"><input type="radio" name="printSize" value="actual" /> Actual size</label>
+        </fieldset>
+        <label class="check print-comments"><input type="checkbox" id="printComments" checked /> Print comments and markup</label>
+        <p id="printPreview" class="preview muted" aria-live="polite"></p>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="printOk">Print</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="exportDialog" aria-labelledby="exportTitle">
+      <form method="dialog">
+        <h2 id="exportTitle">Export pages as images</h2>
+        <fieldset class="choices">
+          <legend>Pages</legend>
+          <label class="choice"><input type="radio" name="exportPages" value="all" checked /> All <span id="exportAllCount" class="muted"></span></label>
+          <label class="choice"><input type="radio" name="exportPages" value="current" /> Current page <span id="exportCurrentPage" class="muted"></span></label>
+          <label class="choice" id="exportSelectedChoice"><input type="radio" name="exportPages" value="selected" /> Selected pages <span id="exportSelectedCount" class="muted"></span></label>
+          <label class="choice"><input type="radio" name="exportPages" value="range" /> Pages <input id="exportRange" placeholder="1-3, 5, 8-" autocomplete="off" spellcheck="false" aria-label="Pages to export" /></label>
+        </fieldset>
+        <fieldset class="choices">
+          <legend>Format</legend>
+          <label class="choice"><input type="radio" name="exportFormat" value="png" checked /> PNG</label>
+          <label class="choice"><input type="radio" name="exportFormat" value="jpeg" /> JPEG</label>
+        </fieldset>
+        <label class="export-dpi">Resolution
+          <select id="exportDpi">
+            <option value="72">72 dpi (screen)</option>
+            <option value="150" selected>150 dpi</option>
+            <option value="300">300 dpi (print)</option>
+          </select>
+        </label>
+        <p id="exportPreview" class="preview muted" aria-live="polite"></p>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="exportOk">Export…</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="noteDialog" aria-labelledby="noteTitle">
+      <form method="dialog">
+        <h2 id="noteTitle">Add note</h2>
+        <textarea id="noteText" rows="5" aria-label="Comment"></textarea>
+        <label class="note-author">Your name <input id="noteAuthor" autocomplete="name" /></label>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="noteOk">Add</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="signatureDialog" aria-labelledby="sigTitle">
+      <form method="dialog">
+        <h2 id="sigTitle">Add signature</h2>
+        <div class="seg-tabs" role="tablist" aria-label="How to sign">
+          <button type="button" role="tab" data-mode="type" aria-controls="sigTypePanel" aria-selected="true">Type</button>
+          <button type="button" role="tab" data-mode="draw" aria-controls="sigDrawPanel" aria-selected="false" tabindex="-1">Draw</button>
+        </div>
+        <div id="sigTypePanel" role="tabpanel">
+          <input id="sigName" autocomplete="name" aria-label="Name" />
+          <div id="sigPreview" class="sig-preview" aria-hidden="true"></div>
+        </div>
+        <div id="sigDrawPanel" role="tabpanel" hidden>
+          <canvas id="sigCanvas" class="sig-canvas" width="800" height="240" aria-label="Draw your signature here"></canvas>
+          <button type="button" id="sigClear" class="text-button">Clear</button>
+        </div>
+        <label class="check sig-save"><input type="checkbox" id="sigSave" checked /> Save on this device for next time</label>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="sigOk">Add</button></menu>
       </form>
     </dialog>
 

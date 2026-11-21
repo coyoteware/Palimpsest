@@ -12,10 +12,14 @@ export const PDFJS_ASSETS = {
   wasmUrl: `${assetBase}wasm/`,
   iccUrl: `${assetBase}iccs/`,
   imageResourcesPath: `${assetBase}images/`,
+  /** Runs form JavaScript in QuickJS, compiled to WebAssembly (no eval). */
+  sandboxBundleSrc: `${assetBase}pdf.sandbox.mjs`,
 };
 
 export interface OpenOptions {
   password?: string;
+  /** Keep fonts' names and types (for listing them; costs memory). */
+  fontExtraProperties?: boolean;
   /** Called when the document needs a password. Resolve with the password or null to abort. */
   askPassword?: (incorrect: boolean) => Promise<string | null>;
 }
@@ -31,6 +35,7 @@ export async function openPdf(data: Uint8Array, opts: OpenOptions = {}) {
     wasmUrl: PDFJS_ASSETS.wasmUrl,
     iccUrl: PDFJS_ASSETS.iccUrl,
     enableXfa: true,
+    fontExtraProperties: opts.fontExtraProperties ?? false,
   });
   let password = opts.password;
   task.onPassword = async (update: (pw: string) => void, reason: number) => {

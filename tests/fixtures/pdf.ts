@@ -16,10 +16,15 @@ export async function inspect(bytes: Uint8Array, password?: string) {
     const annotations = (await p.getAnnotations()).map((a) => ({
       subtype: a.subtype as string,
       contents: (a.contentsObj?.str ?? a.textContent?.join("\n") ?? "") as string,
+      author: (a.titleObj?.str ?? "") as string,
       fieldName: a.fieldName as string | undefined,
       fieldValue: a.fieldValue as unknown,
       color: a.color ? `#${[...(a.color as Uint8ClampedArray)].map((c) => c.toString(16).padStart(2, "0")).join("")}` : null,
       borderWidth: (a.borderStyle?.width ?? null) as number | null,
+      rect: a.rect as [number, number, number, number],
+      /** The strokes of an Ink annotation, as [x, y] points. */
+      ink: ((a.inkLists ?? []) as number[][]).map((l) => Array.from({ length: l.length / 2 }, (_, i) => [l[2 * i], l[2 * i + 1]])),
+      opacity: (a.opacity ?? null) as number | null,
     }));
     pages.push({ rotate: p.rotate, heading, text, annotations });
   }
