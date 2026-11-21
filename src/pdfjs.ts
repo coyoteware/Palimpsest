@@ -12,6 +12,8 @@ export const PDFJS_ASSETS = {
   wasmUrl: `${assetBase}wasm/`,
   iccUrl: `${assetBase}iccs/`,
   imageResourcesPath: `${assetBase}images/`,
+  /** Runs form JavaScript in QuickJS, compiled to WebAssembly (no eval). */
+  sandboxBundleSrc: `${assetBase}pdf.sandbox.mjs`,
 };
 
 export interface OpenOptions {

@@ -6,6 +6,7 @@ import {
   LinkTarget,
   PDFFindController,
   PDFLinkService,
+  PDFScriptingManager,
   PDFViewer,
   ScrollMode,
   SpreadMode,
@@ -122,6 +123,8 @@ export class App {
   readonly linkService: PDFLinkService;
   readonly findController: PDFFindController;
   readonly viewer: PDFViewer;
+  /** Runs the document's JavaScript: calculated, formatted and validated form fields. */
+  readonly scripting: PDFScriptingManager;
   readonly thumbs: Thumbnails;
   readonly history = new DocHistory();
   /** Back / forward through link, bookmark and page-number jumps. */
@@ -163,12 +166,19 @@ export class App {
       externalLinkRel: "noopener noreferrer nofollow",
     });
     this.findController = new PDFFindController({ eventBus: this.eventBus, linkService: this.linkService });
+    this.scripting = new PDFScriptingManager({
+      eventBus: this.eventBus,
+      sandboxBundleSrc: PDFJS_ASSETS.sandboxBundleSrc,
+      // Supported by the component but missing from its type declarations.
+      ...({ wasmUrl: PDFJS_ASSETS.wasmUrl } as object),
+    });
     this.viewer = new PDFViewer({
       container,
       viewer: $<HTMLDivElement>("viewer"),
       eventBus: this.eventBus,
       linkService: this.linkService,
       findController: this.findController,
+      scriptingManager: this.scripting,
       annotationMode: AnnotationMode.ENABLE_FORMS,
       annotationEditorMode: T.NONE,
       annotationEditorHighlightColors: HIGHLIGHT_COLORS,
@@ -177,6 +187,7 @@ export class App {
       ...({ enableHighlightFloatingButton: true } as object),
     });
     this.linkService.setViewer(this.viewer);
+    this.scripting.setViewer(this.viewer);
     this.nav = new NavHistory(
       (place) => this.#goTo(place),
       () => this.#renderNav(),
@@ -1169,6 +1180,9 @@ export class App {
     bus.on("scalechanging", ({ scale, presetValue }: { scale: number; presetValue?: string }) =>
       this.#renderZoom(scale, presetValue),
     );
+    // Requests from the document's JavaScript (print(), saveAs()).
+    bus.on("print", () => void this.print());
+    bus.on("download", () => void this.save(true));
     bus.on("annotationeditoruimanager", ({ uiManager }: { uiManager: UIManager }) => {
       this.#ui = uiManager;
     });

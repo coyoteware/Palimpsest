@@ -11,7 +11,7 @@ Features Adobe Reader (and Acrobat Pro) have that Palimpsest lacks, ordered by c
 - [x] **Page labels**: the page box shows labels such as "iv (4 of 120)" (`getPageLabels()`).
 - [ ] **Comments**: sticky notes and a panel listing every comment (`AnnotationEditorType.COMMENT` / `POPUP`).
 - [ ] **Fill & Sign**: typed or drawn signatures and initials, saved for reuse; check, cross and date marks (`AnnotationEditorType.SIGNATURE`).
-- [ ] **Form JavaScript**: calculated fields, formatting and validation (`PDFScriptingManager` and the pdf.js sandbox).
+- [x] **Form JavaScript**: calculated fields, formatting and validation (`PDFScriptingManager` and the pdf.js sandbox).
 - [x] **Full screen / presentation mode**.
 
 ## Tier 2: our own code
