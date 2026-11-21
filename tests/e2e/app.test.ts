@@ -266,11 +266,13 @@ test("merges the open document, unsaved changes and all, with other PDFs", async
   await poll(() => mergeList(app)).toEqual(["sample.pdf", "other.pdf"]);
 
   await app.click("#mergeOk");
-  // The merge replaces the open document, which has unsaved changes.
-  await poll(() => isOpen(app, "#confirmDialog")).toBe(true);
-  await app.click("#confirmOk");
+  // The merged document opens in a new tab; the open one stays open, unsaved changes and all.
   await opened(app, 7);
   expect(await app.text("#docTitle")).toContain("sample-merged.pdf");
+  expect(await app.exec(`return [...document.querySelectorAll("#tabbar .doc-tab .name")].map((t) => t.textContent)`)).toEqual([
+    "sample.pdf",
+    "sample-merged.pdf",
+  ]);
 
   const out = join(dir, "merged.pdf");
   answer({ save: out });

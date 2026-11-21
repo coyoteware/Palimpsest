@@ -14,7 +14,7 @@ import {
 import { desktop, type RecentFile } from "./desktop";
 import { describePermissions, fontInfo, uniqueFonts, yesNo, type FontInfo } from "./docinfo";
 import * as files from "./files";
-import { DocHistory } from "./history";
+import { DocHistory, type Snapshot } from "./history";
 import { icon } from "./icons";
 import { checkRadio, closeMenus, menuIsOpen, wireMenu } from "./menu";
 import * as comments from "./comments";
@@ -92,6 +92,19 @@ interface EditorLayer {
 
 interface Editor {
   remove(): void;
+}
+
+/** An open document. The showing one's state lives in the app's fields; the others keep it here. */
+interface Tab {
+  id: number;
+  name: string;
+  target: files.SaveTarget | null;
+  password: string | undefined;
+  dirty: boolean;
+  history: DocHistory;
+  /** The file as it was left, pending edits folded in (null while it is the one showing). */
+  bytes: Uint8Array | null;
+  view: { page: number; scale: string; rotation: number };
 }
 
 /** Where a pointer event landed on a page: CSS pixels from the page's top left. */
@@ -177,8 +190,9 @@ interface LoadOptions {
   /** A different file (resets history, save target, password). */
   fresh?: { name: string; target: files.SaveTarget | null };
   page?: number;
-  /** Zoom for a fresh file (otherwise it keeps the current one). */
+  /** Zoom and view rotation (otherwise a fresh file starts at "auto" and 0, a reload keeps them). */
   scale?: string;
+  rotation?: number;
   selection?: number[];
 }
 
@@ -211,7 +225,8 @@ export class App {
   /** Runs the document's JavaScript: calculated, formatted and validated form fields. */
   readonly scripting: PDFScriptingManager;
   readonly thumbs: Thumbnails;
-  readonly history = new DocHistory();
+  /** Document-level undo for the document showing (each tab keeps its own). */
+  history = new DocHistory();
   /** Back / forward through link, bookmark and page-number jumps. */
   readonly nav: NavHistory;
   readonly panels: Panels;
@@ -310,6 +325,7 @@ export class App {
     this.#wirePageTools();
     this.#wireSignMenu();
     this.#wireRecent();
+    this.#wireTabs();
     this.#wirePresentation();
     container.addEventListener("wheel", (e) => this.#onWheel(e), { passive: false });
     window.addEventListener("beforeunload", (e) => {
@@ -357,14 +373,223 @@ export class App {
 
   // ------------------------------------------------------------- loading
 
+  /** Open a file in a new tab (or show the tab it is already open in). */
   async openFile(file: files.OpenedFile) {
     const path = file.target?.path;
+    const already = path ? this.#tabs.find((t) => this.#tabTarget(t)?.path === path) : undefined;
+    if (already) {
+      await this.activateTab(already);
+      return true;
+    }
     // Back where the reader left off last time.
     await this.#recentReady;
     const last = path ? this.#recent.find((r) => r.path === path) : undefined;
-    const ok = await this.#load(file.bytes, { fresh: { name: file.name, target: file.target }, page: last?.page, scale: last?.zoom });
+    const ok = await this.#openInNewTab(file.bytes, { name: file.name, target: file.target }, { page: last?.page, scale: last?.zoom });
     if (ok && path) await this.#remember(path);
     return ok;
+  }
+
+  // ----------------------------------------------------------------- tabs
+
+  #tabs: Tab[] = [];
+  #active: Tab | null = null;
+  #tabIds = 0;
+
+  get tabCount() {
+    return this.#tabs.length;
+  }
+
+  /** The tab's save target; the showing tab's lives in the app's own fields. */
+  #tabTarget(tab: Tab) {
+    return tab === this.#active ? this.target : tab.target;
+  }
+
+  /** Load `bytes` as a new document in a new tab after the current one. */
+  async #openInNewTab(bytes: Uint8Array, fresh: NonNullable<LoadOptions["fresh"]>, at: { page?: number; scale?: string } = {}) {
+    const prev = this.#active;
+    const undoPoint = prev ? await this.#stash(prev) : null;
+    if (!(await this.#load(bytes, { fresh, page: at.page, scale: at.scale }))) {
+      if (prev) prev.bytes = null; // still showing, as it was
+      return false;
+    }
+    if (prev && undoPoint) prev.history.push(undoPoint);
+    const tab: Tab = {
+      id: ++this.#tabIds,
+      name: fresh.name,
+      target: fresh.target,
+      password: this.#password,
+      dirty: false,
+      history: this.history,
+      bytes: null,
+      view: { page: 1, scale: "auto", rotation: 0 },
+    };
+    this.#tabs.splice(prev ? this.#tabs.indexOf(prev) + 1 : this.#tabs.length, 0, tab);
+    this.#active = tab;
+    this.#renderTabs();
+    return true;
+  }
+
+  /**
+   * Put the showing document away in its tab: the file as it would be saved
+   * (pending annotation and form edits folded in), its view and its state.
+   * Returns an undo step for those edits, to add once the switch succeeds.
+   */
+  async #stash(tab: Tab): Promise<Snapshot | null> {
+    const doc = this.#requireDoc();
+    if (this.presenting) await this.present(false);
+    if (!$("findbar").hidden) this.#closeFind();
+    closeMenus();
+    if (this.#tool !== "none") await this.setTool("none");
+    const pending = this.#annotDirty;
+    const bytes = await this.currentBytes();
+    const undoPoint = pending ? { bytes: await doc.getData(), label: "annotation and form edits", page: this.page } : null;
+    Object.assign(tab, {
+      name: this.fileName,
+      target: this.target,
+      password: this.#password,
+      dirty: this.dirty,
+      history: this.history,
+      bytes,
+      view: { page: this.page, scale: this.viewer.currentScaleValue || "auto", rotation: this.viewer.pagesRotation },
+    });
+    return undoPoint;
+  }
+
+  /** Show another tab's document. With `closing`, the showing one is closed, not kept. */
+  async activateTab(tab: Tab, closing = false) {
+    if (tab === this.#active || !this.#tabs.includes(tab) || this.#busy) return;
+    const prev = this.#active;
+    await this.#withBusy("Opening…", async () => {
+      const undoPoint = prev && !closing ? await this.#stash(prev) : null;
+      const before = { fileName: this.fileName, target: this.target, password: this.#password, history: this.history, docDirty: this.#docDirty };
+      this.fileName = tab.name;
+      this.target = tab.target;
+      this.#password = tab.password;
+      this.history = tab.history;
+      this.#docDirty = tab.dirty;
+      const { page, scale, rotation } = tab.view;
+      if (!(await this.#load(tab.bytes!, { page, scale, rotation }))) {
+        this.fileName = before.fileName;
+        this.target = before.target;
+        this.#password = before.password;
+        this.history = before.history;
+        this.#docDirty = before.docDirty;
+        if (prev) prev.bytes = null;
+        return;
+      }
+      if (prev && undoPoint) prev.history.push(undoPoint);
+      if (prev && closing) this.#tabs.splice(this.#tabs.indexOf(prev), 1);
+      tab.bytes = null;
+      this.#active = tab;
+      this.#renderTitle();
+      this.#renderUndo();
+    });
+  }
+
+  /** Close a tab (the showing one by default), asking first if it has unsaved changes. */
+  async closeTab(tab = this.#active) {
+    if (!tab || this.#busy) return;
+    const active = tab === this.#active;
+    const name = active ? this.fileName || "Untitled" : tab.name;
+    if (
+      (active ? this.dirty : tab.dirty) &&
+      !(await confirmDialog("Close without saving?", `${name} has changes that have not been saved.`, "Close without saving"))
+    ) {
+      return;
+    }
+    if (!active) {
+      this.#tabs.splice(this.#tabs.indexOf(tab), 1);
+      return this.#renderTabs();
+    }
+    const i = this.#tabs.indexOf(tab);
+    const next = this.#tabs[i + 1] ?? this.#tabs[i - 1];
+    if (next) await this.activateTab(next, true);
+    else await this.#unload();
+  }
+
+  /** Close the last document: back to the start screen. */
+  async #unload() {
+    const doc = this.doc;
+    if (!doc) return;
+    if (this.presenting) await this.present(false);
+    if (!$("findbar").hidden) this.#closeFind();
+    await this.setTool("none");
+    await Promise.allSettled(Array.from({ length: doc.numPages }, (_, i) => doc.getPage(i + 1)));
+    this.viewer.setDocument(null as unknown as PDFDocumentProxy);
+    this.linkService.setDocument(null as unknown as PDFDocumentProxy, null);
+    await this.thumbs.setDocument(null);
+    await this.panels.setDocument(null);
+    this.doc = null;
+    this.#tabs = [];
+    this.#active = null;
+    this.fileName = "";
+    this.target = null;
+    this.#password = undefined;
+    this.history = new DocHistory();
+    this.#docDirty = this.#annotDirty = false;
+    this.#ui = null;
+    this.#editor = {};
+    this.nav.reset();
+    $("app").classList.add("no-doc");
+    this.#renderTitle();
+    this.#renderUndo();
+    await doc.loadingTask.destroy();
+  }
+
+  #renderTabs() {
+    const bar = $("tabbar");
+    // One document needs no tabs.
+    bar.hidden = this.#tabs.length < 2;
+    bar.replaceChildren(
+      ...this.#tabs.map((t) => {
+        const active = t === this.#active;
+        const name = (active ? this.fileName : t.name) || "Untitled";
+        const el = Object.assign(document.createElement("div"), { className: "doc-tab", tabIndex: active ? 0 : -1, title: this.#tabTarget(t)?.path ?? name });
+        el.setAttribute("role", "tab");
+        el.setAttribute("aria-selected", String(active));
+        el.dataset.tab = String(t.id);
+        el.append(Object.assign(document.createElement("span"), { className: "name", textContent: name }));
+        if (active ? this.dirty : t.dirty) {
+          el.append(Object.assign(document.createElement("span"), { className: "dirty", title: "Unsaved changes", textContent: "●" }));
+        }
+        const close = Object.assign(document.createElement("button"), { type: "button", className: "close", title: "Close (Ctrl+W)", tabIndex: -1 });
+        close.setAttribute("aria-label", `Close ${name}`);
+        close.innerHTML = icon("close");
+        el.append(close);
+        return el;
+      }),
+    );
+  }
+
+  #wireTabs() {
+    const bar = $("tabbar");
+    const tabOf = (e: Event) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>(".doc-tab");
+      return el ? this.#tabs.find((t) => String(t.id) === el.dataset.tab) : undefined;
+    };
+    bar.addEventListener("click", (e) => {
+      const tab = tabOf(e);
+      if (!tab) return;
+      if ((e.target as HTMLElement).closest(".close")) void this.closeTab(tab);
+      else void this.activateTab(tab);
+    });
+    // Middle click closes, as in a browser.
+    bar.addEventListener("auxclick", (e) => {
+      const tab = tabOf(e);
+      if (tab && e.button === 1) void this.closeTab(tab);
+    });
+    bar.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      void this.#cycleTab(e.key === "ArrowRight" ? 1 : -1, true);
+    });
+  }
+
+  async #cycleTab(step: number, focus = false) {
+    if (this.#tabs.length < 2 || !this.#active) return;
+    const i = this.#tabs.indexOf(this.#active);
+    await this.activateTab(this.#tabs[(i + step + this.#tabs.length) % this.#tabs.length]);
+    if (focus) $("tabbar").querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
   }
 
   /** Add a file to the recent files list (the shell keeps it). */
@@ -382,7 +607,7 @@ export class App {
   }
 
   async openRecent(path: string) {
-    if (this.#busy || !(await this.confirmDiscard())) return;
+    if (this.#busy) return;
     try {
       await this.openFile(files.fromDesktop(await desktop.openRecent(path)));
     } catch (e) {
@@ -483,7 +708,8 @@ export class App {
     if (opts.fresh) {
       this.fileName = opts.fresh.name;
       this.target = opts.fresh.target;
-      this.history.clear();
+      // A new object: another tab may hold the old one.
+      this.history = new DocHistory();
       this.#docDirty = false;
     }
     this.#annotDirty = false;
@@ -492,8 +718,8 @@ export class App {
     this.#tool = "none";
     const view = (this.#pendingView = {
       page: Math.min(opts.page ?? 1, doc.numPages),
-      scale: opts.fresh ? (opts.scale ?? "auto") : this.viewer.currentScaleValue || "auto",
-      rotation: opts.fresh ? 0 : this.viewer.pagesRotation,
+      scale: opts.scale ?? (opts.fresh ? "auto" : this.viewer.currentScaleValue || "auto"),
+      rotation: opts.rotation ?? (opts.fresh ? 0 : this.viewer.pagesRotation),
     });
     this.nav.reset();
     this.#labels = null;
@@ -546,7 +772,7 @@ export class App {
   // ----------------------------------------------------------- file ops
 
   async open() {
-    if (this.#busy || !(await this.confirmDiscard())) return;
+    if (this.#busy) return;
     try {
       const [file] = await files.pickPdfs();
       if (file) await this.openFile(file);
@@ -555,9 +781,16 @@ export class App {
     }
   }
 
+  /** Before the window closes: ask if any open document has unsaved changes. */
   async confirmDiscard() {
-    if (!this.dirty) return true;
-    return confirmDialog("Discard unsaved changes?", `${this.fileName} has changes that have not been saved.`, "Discard");
+    const dirty = this.#tabs.length
+      ? this.#tabs.filter((t) => (t === this.#active ? this.dirty : t.dirty)).map((t) => (t === this.#active ? this.fileName : t.name) || "Untitled")
+      : this.dirty
+        ? [this.fileName]
+        : [];
+    if (!dirty.length) return true;
+    const what = dirty.length === 1 ? `${dirty[0]} has` : `${listNames(dirty)} have`;
+    return confirmDialog("Discard unsaved changes?", `${what} changes that have not been saved.`, "Discard");
   }
 
   async save(saveAs = false) {
@@ -1007,7 +1240,7 @@ export class App {
     const entries: MergeEntry[] = picked.map((file) => ({ name: file.name, file }));
     if (this.doc) entries.unshift({ name: this.fileName || "Untitled", file: null });
     const order = await this.#askMerge(entries);
-    if (!order || !(await this.confirmDiscard())) return;
+    if (!order) return;
 
     await this.#withBusy("Merging…", async () => {
       // The open document (at `at`, if listed) is already open; the files are
@@ -1027,7 +1260,8 @@ export class App {
           merged = await ops.assemble(picked[0].doc, ops.mergePlan(sources.map((s) => s.pages)), sources.slice(1));
         }
         const name = files.withSuffix(order[0].name, "-merged");
-        if (await this.#load(merged, { fresh: { name, target: null } })) {
+        // A new document, in a new tab.
+        if (await this.#openInNewTab(merged, { name, target: null })) {
           this.#docDirty = true; // a new document, not saved anywhere yet
           this.#renderTitle();
           toast(`Merged ${plural(order.length, "file")} into ${plural(this.pageCount, "page")}`);
@@ -1296,8 +1530,7 @@ export class App {
    * mode announces the new mode before it creates the layers, and pdf.js drops
    * an annotation created in between.
    */
-  async #editorLayerReady() {
-    const pageNumber = this.page;
+  async #editorLayerReady(pageNumber = this.page) {
     if (this.viewer.getPageView(pageNumber - 1)?.annotationEditorLayer?.annotationEditorLayer) return;
     const ac = new AbortController();
     await new Promise<void>((resolve) => {
@@ -1412,6 +1645,8 @@ export class App {
   /** Add pdf.js editors to a rendered page, as one step pdf.js can undo. */
   async addEditors(pageIndex: number, datas: EditorData[]) {
     const ui = this.#ui;
+    // A page just scrolled to may still be rendering its editor layer.
+    if (ui && !ui.getLayer(pageIndex)) await this.#editorLayerReady(pageIndex + 1);
     const layer = ui?.getLayer(pageIndex);
     if (!ui || !layer) {
       toast("Annotations can't be added to this page.", "error");
@@ -1807,6 +2042,7 @@ export class App {
       );
     }
     document.title = this.doc ? `${this.dirty ? "• " : ""}${name} — Palimpsest` : "Palimpsest";
+    this.#renderTabs();
   }
 
   #renderTool() {
@@ -2354,6 +2590,8 @@ export class App {
       if (mod && key === "o") return handled(), void this.open();
       if (!this.doc) return;
       if (mod && key === "l") return handled(), void this.present(true);
+      if (mod && e.key === "Tab") return handled(), void this.#cycleTab(e.shiftKey ? -1 : 1);
+      if ((mod && key === "w") || (mod && e.key === "F4")) return handled(), void this.closeTab();
       if (mod && e.shiftKey && e.code === "Equal") return handled(), this.rotateView(90);
       if (mod && e.shiftKey && e.code === "Minus") return handled(), this.rotateView(-90);
       if (e.altKey && !mod && e.key === "ArrowLeft" && !typing) return handled(), this.nav.back();
@@ -2433,7 +2671,7 @@ export class App {
       if (!hasFiles(e)) return;
       e.preventDefault();
       if (!file) return toast("That is not a PDF file.", "error");
-      if (this.#busy || dialogOpen() || !(await this.confirmDiscard())) return;
+      if (this.#busy || dialogOpen()) return;
       await this.openFile(await files.fromFile(file));
     });
     // Thumbnail drops stop propagation, so the hint must be cleared there too.
