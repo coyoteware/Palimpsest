@@ -13,6 +13,7 @@
         <div class="group">
           <button id="btnSidebar" class="icon needs-doc" data-icon="sidebar" title="Sidebar (F4)" aria-label="Toggle sidebar" aria-pressed="true"></button>
           <button id="btnOpen" class="icon" data-icon="open" title="Open (Ctrl+O)" aria-label="Open"></button>
+          <button id="btnRecent" class="icon" data-icon="recent" title="Recent files" aria-label="Recent files" aria-controls="recentMenu"></button>
           <button id="btnMerge" class="icon" data-icon="merge" title="Merge PDFs…" aria-label="Merge PDFs"></button>
           <button id="btnSave" class="icon needs-doc" data-icon="save" title="Save (Ctrl+S)" aria-label="Save"></button>
           <button id="btnSaveAs" class="icon needs-doc" data-icon="saveAs" title="Save as… (Ctrl+Shift+S)" aria-label="Save as"></button>
@@ -171,6 +172,10 @@
             <button id="btnOpenEmpty" class="primary">Open a PDF</button>
             <p class="hint muted">or drop a file anywhere · Ctrl+O</p>
             <button id="btnMergeEmpty" class="text-button">Merge PDFs…</button>
+            <div id="recentSection" class="recent" hidden>
+              <h2>Recent files</h2>
+              <ul id="recentList" class="recent-list"></ul>
+            </div>
           </div>
         </section>
         <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyLabel"></span></div>
@@ -178,6 +183,7 @@
       </main>
     </div>
 
+    <div id="recentMenu" class="menu recent-menu" role="menu" aria-label="Recent files" hidden></div>
     <div id="viewMenu" class="menu" role="menu" aria-label="View options" hidden>
       <div class="menu-label" role="presentation">Page layout</div>
       <button role="menuitemradio" data-group="scroll" data-value="vertical">Continuous</button>

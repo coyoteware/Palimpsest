@@ -59,6 +59,31 @@ struct Shell {
     /// Folder the next dialog starts in.
     last_dir: Mutex<Option<PathBuf>>,
     windows: AtomicU32,
+    /// Recently opened PDFs, newest first, and the file they are kept in.
+    recent: Mutex<Vec<Recent>>,
+    recent_file: Mutex<Option<PathBuf>>,
+}
+
+/// A recently opened PDF, and where the reader was in it: page number and zoom.
+#[derive(Clone)]
+struct Recent {
+    path: PathBuf,
+    page: u32,
+    zoom: String,
+}
+
+impl Recent {
+    /// "path<TAB>page<TAB>zoom", as kept in recent.txt.
+    fn parse(line: &str) -> Option<Self> {
+        let mut fields = line.rsplitn(3, '\t');
+        let (zoom, page, path) = (fields.next()?, fields.next()?, fields.next()?);
+        Some(Self { path: path.into(), page: page.parse().ok()?, zoom: zoom.into() })
+    }
+
+    fn line(&self) -> Option<String> {
+        let path = self.path.to_str().filter(|p| !p.contains(['\n', '\r']))?;
+        Some(format!("{path}\t{}\t{}\n", self.page, self.zoom))
+    }
 }
 
 impl Shell {
@@ -80,6 +105,25 @@ impl Shell {
             Some(paths) if paths.contains(path) => Ok(()),
             _ => Err("Access to that location was not authorised.".into()),
         }
+    }
+
+    /// Load the recent files list from `file`, where it is kept from now on.
+    fn load_recent(&self, file: PathBuf) {
+        let list = std::fs::read_to_string(&file)
+            .map(|text| text.lines().filter_map(Recent::parse).collect())
+            .unwrap_or_default();
+        *self.recent.lock().unwrap() = list;
+        *self.recent_file.lock().unwrap() = Some(file);
+    }
+
+    /// Write the recent files list (paths that cannot be written as a line are left out).
+    fn save_recent(&self) {
+        let Some(file) = self.recent_file.lock().unwrap().clone() else { return };
+        let text: String = self.recent.lock().unwrap().iter().filter_map(Recent::line).collect();
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(file, text);
     }
 
     fn forget(&self, label: &str) {
@@ -308,6 +352,65 @@ fn print_page(webview: Webview) -> Result<(), String> {
     webview.print().map_err(|e| e.to_string())
 }
 
+/// How many recently opened files are remembered.
+const MAX_RECENT: usize = 10;
+
+/// Recently opened PDFs that are still there, newest first: path, page number and zoom.
+#[tauri::command]
+fn recent_files(shell: State<Shell>) -> Vec<(PathBuf, u32, String)> {
+    shell
+        .recent
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.path.is_file())
+        .map(|r| (r.path.clone(), r.page, r.zoom.clone()))
+        .collect()
+}
+
+/// Remember a PDF this window opened or saved as recently used, and where
+/// the reader is in it. Only a file the window may already use (the user
+/// chose it) can be added.
+#[tauri::command]
+fn add_recent(window: Window, shell: State<Shell>, path: PathBuf, page: Option<u32>, zoom: Option<String>) -> Result<(), String> {
+    shell.check(&window, &path)?;
+    if !Kind::Pdf.accepts(&path) {
+        return Err("Only PDFs are remembered.".into());
+    }
+    {
+        let mut list = shell.recent.lock().unwrap();
+        let old = list.iter().position(|r| r.path == path).map(|i| list.remove(i));
+        // A zoom is a number or one of pdf.js's names; anything else is not kept.
+        let zoom = zoom
+            .filter(|z| z.len() < 16 && z.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'))
+            .or(old.as_ref().map(|r| r.zoom.clone()))
+            .unwrap_or_else(|| "auto".into());
+        let page = page.or(old.map(|r| r.page)).unwrap_or(1).max(1);
+        list.insert(0, Recent { path, page, zoom });
+        list.truncate(MAX_RECENT);
+    }
+    shell.save_recent();
+    Ok(())
+}
+
+/// Let this window open a file from the recent list, and nothing else this way.
+#[tauri::command]
+fn open_recent(window: Window, shell: State<Shell>, path: PathBuf) -> Result<PathBuf, String> {
+    if !shell.recent.lock().unwrap().iter().any(|r| r.path == path) {
+        return Err("That file is not in the recent files list.".into());
+    }
+    if !path.is_file() {
+        return Err("That file is no longer there.".into());
+    }
+    Ok(shell.grant(&window, vec![path.clone()]).pop().unwrap_or(path))
+}
+
+#[tauri::command]
+fn forget_recent(shell: State<Shell>) {
+    shell.recent.lock().unwrap().clear();
+    shell.save_recent();
+}
+
 /// Full screen for presentation mode.
 #[tauri::command]
 fn set_fullscreen(window: Window, on: bool) -> Result<(), String> {
@@ -462,18 +565,27 @@ fn main() {
     #[cfg(not(feature = "e2e"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         initial_file, pick_pdfs, pick_image, save_as, save_to_folder, read_file, write_file, close_window, print_page,
-        set_fullscreen
+        set_fullscreen, recent_files, add_recent, open_recent, forget_recent
     ]);
     #[cfg(feature = "e2e")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         initial_file, pick_pdfs, pick_image, save_as, save_to_folder, read_file, write_file, close_window, print_page,
-        set_fullscreen, e2e::request_close
+        set_fullscreen, recent_files, add_recent, open_recent, forget_recent, e2e::request_close
     ]);
 
     builder
         .on_window_event(on_window_event)
         .setup(|app| {
-            *app.state::<Shell>().last_dir.lock().unwrap() = app.path().document_dir().ok();
+            let shell = app.state::<Shell>();
+            *shell.last_dir.lock().unwrap() = app.path().document_dir().ok();
+            // Test builds keep the list with the test's files, so each run starts empty.
+            #[cfg(feature = "e2e")]
+            let data_dir = e2e::dir().map_or_else(|| app.path().app_data_dir(), Ok);
+            #[cfg(not(feature = "e2e"))]
+            let data_dir = app.path().app_data_dir();
+            if let Ok(dir) = data_dir {
+                shell.load_recent(dir.join("recent.txt"));
+            }
             let cwd = std::env::current_dir().unwrap_or_default();
             let files = pdf_args(std::env::args().skip(1), &cwd);
             if files.is_empty() {

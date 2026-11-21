@@ -59,6 +59,8 @@ const pause = { type: "pause", duration: 0 };
 
 export class Session {
   readonly #base: string;
+  /** Run before each click, to wait until the app can take one (set by the harness). */
+  settle: () => Promise<void> = async () => {};
 
   private constructor(driver: string, id: string) {
     this.#base = `${driver}/session/${id}`;
@@ -106,7 +108,11 @@ export class Session {
   }
 
   async click(css: string) {
-    await this.#cmd("POST", `/element/${await this.#find(css)}/click`, {});
+    await this.settle();
+    const el = await this.#find(css);
+    // The driver scrolls only elements outside the window, not ones hidden in a scrolled list.
+    await this.exec("arguments[0].scrollIntoView({ block: 'nearest', inline: 'nearest' })", { [ELEMENT]: el });
+    await this.#cmd("POST", `/element/${el}/click`, {});
   }
 
   /** Type into an element, as the user would. */
@@ -162,6 +168,7 @@ export class Session {
 
   /** Click at a point (viewport coordinates), optionally holding a modifier key. */
   async clickAt([x, y]: Point, modifier?: string) {
+    await this.settle();
     const pointer = [
       { type: "pointerMove", x: Math.round(x), y: Math.round(y), origin: "viewport" },
       { type: "pointerDown", button: 0 },

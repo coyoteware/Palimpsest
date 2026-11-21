@@ -11,7 +11,7 @@ import {
   ScrollMode,
   SpreadMode,
 } from "pdfjs-dist/web/pdf_viewer.mjs";
-import { desktop } from "./desktop";
+import { desktop, type RecentFile } from "./desktop";
 import { describePermissions, fontInfo, uniqueFonts, yesNo, type FontInfo } from "./docinfo";
 import * as files from "./files";
 import { DocHistory } from "./history";
@@ -177,6 +177,8 @@ interface LoadOptions {
   /** A different file (resets history, save target, password). */
   fresh?: { name: string; target: files.SaveTarget | null };
   page?: number;
+  /** Zoom for a fresh file (otherwise it keeps the current one). */
+  scale?: string;
   selection?: number[];
 }
 
@@ -307,6 +309,7 @@ export class App {
     this.#wireSidebar();
     this.#wirePageTools();
     this.#wireSignMenu();
+    this.#wireRecent();
     this.#wirePresentation();
     container.addEventListener("wheel", (e) => this.#onWheel(e), { passive: false });
     window.addEventListener("beforeunload", (e) => {
@@ -355,8 +358,103 @@ export class App {
   // ------------------------------------------------------------- loading
 
   async openFile(file: files.OpenedFile) {
-    return this.#load(file.bytes, { fresh: { name: file.name, target: file.target } });
+    const path = file.target?.path;
+    // Back where the reader left off last time.
+    await this.#recentReady;
+    const last = path ? this.#recent.find((r) => r.path === path) : undefined;
+    const ok = await this.#load(file.bytes, { fresh: { name: file.name, target: file.target }, page: last?.page, scale: last?.zoom });
+    if (ok && path) await this.#remember(path);
+    return ok;
   }
+
+  /** Add a file to the recent files list (the shell keeps it). */
+  async #remember(path: string) {
+    await desktop.addRecent(path).catch((e: unknown) => console.warn("recent files", e));
+    await this.#loadRecent();
+  }
+
+  /** Recently opened files, as the shell last listed them. */
+  #recent: RecentFile[] = [];
+
+  async #loadRecent() {
+    this.#recent = await desktop.recentFiles().catch(() => []);
+    this.#renderRecent();
+  }
+
+  async openRecent(path: string) {
+    if (this.#busy || !(await this.confirmDiscard())) return;
+    try {
+      await this.openFile(files.fromDesktop(await desktop.openRecent(path)));
+    } catch (e) {
+      toast(errorText(e), "error");
+      await this.#loadRecent();
+    }
+  }
+
+  /** The recent files on the start screen. */
+  #renderRecent() {
+    const list = $("recentList");
+    list.replaceChildren(
+      ...this.#recent.slice(0, 8).map((f) => {
+        const li = document.createElement("li");
+        const b = Object.assign(document.createElement("button"), { type: "button", className: "recent-file", title: f.path });
+        b.append(
+          Object.assign(document.createElement("span"), { className: "file-name", textContent: f.name }),
+          Object.assign(document.createElement("span"), { className: "muted file-dir", textContent: dirName(f.path) }),
+        );
+        b.addEventListener("click", () => void this.openRecent(f.path));
+        li.append(b);
+        return li;
+      }),
+    );
+    $("recentSection").hidden = this.#recent.length === 0;
+  }
+
+  #wireRecent() {
+    wireMenu($("btnRecent"), {
+      beforeOpen: (menu) => {
+        const item = (label: string, data: Record<string, string>, title = "") => {
+          const b = Object.assign(document.createElement("button"), { type: "button", textContent: label, title });
+          b.setAttribute("role", "menuitem");
+          Object.assign(b.dataset, data);
+          return b;
+        };
+        const files = this.#recent.map((f) => item(f.name, { path: f.path }, f.path));
+        menu.replaceChildren(
+          ...(files.length ? files : [Object.assign(item("No recent files", {}), { disabled: true })]),
+          Object.assign(document.createElement("hr"), { role: "separator" }),
+          Object.assign(item("Clear recent files", { act: "clear" }), { disabled: !files.length }),
+        );
+      },
+      choose: async (el) => {
+        if (el.dataset.path) return void this.openRecent(el.dataset.path);
+        if (el.dataset.act === "clear") {
+          await desktop.forgetRecent().catch(() => {});
+          await this.#loadRecent();
+        }
+      },
+    });
+    this.#recentReady = this.#loadRecent();
+  }
+
+  /** Settles once the recent files list has been read at startup. */
+  #recentReady: Promise<void> = Promise.resolve();
+
+  /** Remember where the reader is in the current file, to come back to it. */
+  #savePosition() {
+    const path = this.target?.path;
+    if (!this.doc || !path || this.#presenting || this.#pendingView) return;
+    clearTimeout(this.#positionTimer);
+    this.#positionTimer = window.setTimeout(() => {
+      if (this.target?.path !== path) return;
+      const place = { page: this.page, zoom: this.viewer.currentScaleValue || "auto" };
+      void desktop.addRecent(path, place).catch(() => {});
+      const entry = this.#recent.find((r) => r.path === path);
+      if (entry) Object.assign(entry, place);
+    }, 400);
+  }
+
+  #positionTimer = 0;
 
   async #load(bytes: Uint8Array, opts: LoadOptions): Promise<boolean> {
     let opened;
@@ -394,7 +492,7 @@ export class App {
     this.#tool = "none";
     const view = (this.#pendingView = {
       page: Math.min(opts.page ?? 1, doc.numPages),
-      scale: opts.fresh ? "auto" : this.viewer.currentScaleValue || "auto",
+      scale: opts.fresh ? (opts.scale ?? "auto") : this.viewer.currentScaleValue || "auto",
       rotation: opts.fresh ? 0 : this.viewer.pagesRotation,
     });
     this.nav.reset();
@@ -473,6 +571,7 @@ export class App {
         if (!target) return; // cancelled
         this.target = target;
         this.fileName = target.name;
+        if (target.path) void this.#remember(target.path);
       }
       this.#docDirty = false;
       this.#annotDirty = false;
@@ -1939,13 +2038,15 @@ export class App {
     bus.on("pagechanging", ({ pageNumber }: { pageNumber: number }) => {
       this.#renderPageNumber(pageNumber);
       this.thumbs.setCurrent(pageNumber - 1);
+      this.#savePosition();
     });
     bus.on("updateviewarea", ({ location }: { location: Place }) => {
       this.nav.update({ pageNumber: location.pageNumber, left: location.left, top: location.top });
     });
-    bus.on("scalechanging", ({ scale, presetValue }: { scale: number; presetValue?: string }) =>
-      this.#renderZoom(scale, presetValue),
-    );
+    bus.on("scalechanging", ({ scale, presetValue }: { scale: number; presetValue?: string }) => {
+      this.#renderZoom(scale, presetValue);
+      this.#savePosition();
+    });
     // Requests from the document's JavaScript (print(), saveAs()).
     bus.on("print", () => void this.print());
     bus.on("download", () => void this.save(true));
@@ -2422,6 +2523,9 @@ async function confirmDialog(title: string, message: string, ok: string) {
   $("confirmOk").textContent = ok;
   return (await showDialog($<HTMLDialogElement>("confirmDialog"))) === "ok";
 }
+
+/** The folder part of a path, for showing beside a file name. */
+const dirName = (path: string) => path.replace(/[\\/][^\\/]*$/, "");
 
 /** The page layout last chosen in the View menu. */
 function savedLayout() {

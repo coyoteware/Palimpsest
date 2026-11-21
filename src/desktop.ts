@@ -5,6 +5,14 @@ export interface DesktopFile {
   bytes: Uint8Array;
 }
 
+export interface RecentFile {
+  name: string;
+  path: string;
+  /** Page number and zoom (pdf.js's scale value) when the file was last read. */
+  page: number;
+  zoom: string;
+}
+
 /** What a save dialog offers to save. */
 export type FileKind = "pdf" | "png" | "jpeg" | "any";
 
@@ -26,6 +34,16 @@ export interface DesktopBridge {
   write(path: string, bytes: Uint8Array): Promise<void>;
   /** Puts the window in or out of full screen (presentation mode). */
   setFullscreen(on: boolean): Promise<void>;
+  /** Recently opened PDFs that are still there, newest first, with where the reader was in each. */
+  recentFiles(): Promise<RecentFile[]>;
+  /**
+   * Remember a PDF this window opened or saved (one the user chose) as
+   * recently used, and where the reader is in it (else where they were).
+   */
+  addRecent(path: string, place?: { page: number; zoom: string }): Promise<void>;
+  /** Open a file from the recent list. */
+  openRecent(path: string): Promise<DesktopFile>;
+  forgetRecent(): Promise<void>;
   /**
    * Opens the native print dialog where window.print() does not work (macOS,
    * whose WKWebView ignores it). It returns before printing ends.

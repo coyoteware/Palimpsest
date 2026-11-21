@@ -49,6 +49,7 @@ const paths: Record<string, string> = {
   zoomArea: '<path d="M3 8V4a1 1 0 0 1 1-1h4M16 3h4a1 1 0 0 1 1 1v4M8 21H4a1 1 0 0 1-1-1v-4"/><circle cx="14" cy="14" r="4"/><path d="m21 21-4.2-4.2"/><path d="M14 12v4M12 14h4"/>',
   camera: '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>',
   exportImage: '<rect x="3" y="3" width="13" height="13" rx="1.5"/><circle cx="7.5" cy="7.5" r="1.3"/><path d="m16 11-3-3-8 8"/><path d="M19 13v8"/><path d="m16 18 3 3 3-3"/>',
+  recent: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   close: '<path d="M18 6 6 18M6 6l12 12"/>',
   logo: '<path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M15 2v5h5"/><path d="M8 17c2-1 3-4 5-4s1 3 3 2"/>',
 };

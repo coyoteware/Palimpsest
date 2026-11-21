@@ -17,7 +17,7 @@ Features Adobe Reader (and Acrobat Pro) have that Palimpsest lacks, ordered by c
 ## Tier 2: our own code
 
 - [x] **More markup**: underline, strikethrough, squiggly; rectangle, ellipse, line and arrow.
-- [ ] **Recent files**, and reopening a file at its last page and zoom.
+- [x] **Recent files**, and reopening a file at its last page and zoom.
 - [x] **Print options**: page range, current page, annotations on or off, fit or actual size.
 - [x] **Hand tool, marquee zoom, snapshot to clipboard**.
 - [x] **Export pages as images** (PNG, JPEG).

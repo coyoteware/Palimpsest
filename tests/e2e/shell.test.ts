@@ -72,7 +72,22 @@ test("the page gets no Tauri APIs and can only touch files the user chose", asyn
     process: "undefined",
     tauri: "undefined",
     // Release builds have `print` on macOS only; test builds route printing through the shell everywhere.
-    bridge: ["initialFile", "onCloseRequested", "openImage", "openPdfs", "platform", "print", "saveAs", "saveToFolder", "setFullscreen", "write"],
+    bridge: [
+      "addRecent",
+      "forgetRecent",
+      "initialFile",
+      "onCloseRequested",
+      "openImage",
+      "openPdfs",
+      "openRecent",
+      "platform",
+      "print",
+      "recentFiles",
+      "saveAs",
+      "saveToFolder",
+      "setFullscreen",
+      "write",
+    ],
   });
 
   /** Runs an async function in the page and reports "ok" or its error. */
@@ -89,6 +104,9 @@ test("the page gets no Tauri APIs and can only touch files the user chose", asyn
   expect(await attempt("(p) => window.__TAURI_INTERNALS__.invoke('read_file', { path: p })", notChosen)).toMatch(
     /not authorised/,
   );
+  // The recent files list takes only files the user chose, and opens only what is on it.
+  expect(await attempt("(p) => window.palimpsestDesktop.addRecent(p)", notChosen)).toMatch(/not authorised/);
+  expect(await attempt("(p) => window.palimpsestDesktop.openRecent(p)", notChosen)).toMatch(/not in the recent files list/);
   // Plugin commands are not granted to the page (capabilities/default.json).
   expect(await attempt("() => window.__TAURI_INTERNALS__.invoke('plugin:dialog|open', { options: {} })")).toMatch(
     /not allowed/,

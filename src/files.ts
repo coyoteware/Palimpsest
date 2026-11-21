@@ -7,6 +7,8 @@ import { desktop, type DesktopFile, type FileKind } from "./desktop";
 /** Somewhere a document can be written back to. */
 export interface SaveTarget {
   readonly name: string;
+  /** Where on disk, for a file the user chose (a dropped file has none). */
+  readonly path?: string;
   write(bytes: Uint8Array): Promise<void>;
 }
 
@@ -18,6 +20,7 @@ export interface OpenedFile {
 
 const pathTarget = (name: string, path: string): SaveTarget => ({
   name,
+  path,
   write: (bytes) => desktop.write(path, bytes),
 });
 

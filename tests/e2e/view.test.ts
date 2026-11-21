@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { LAYER_BOX } from "../fixtures/rich";
-import { answer, dirty, launch, onPage, opened, poll, richIn, sampleIn, savedTo, shellLog, STARTUP, useApp, workDir } from "./harness";
+import { answer, closed, dirty, launch, onPage, opened, poll, richIn, sampleIn, savedTo, shellLog, STARTUP, useApp, workDir } from "./harness";
 import { Key, type Session } from "./webdriver";
 
 useApp();
@@ -277,4 +277,37 @@ test("document properties: security, forms, dates and the fonts used", async () 
   const fonts = () => app.exec<string[]>(`return [...document.querySelectorAll("#fontList li")].map((li) => li.textContent)`);
   await poll(fonts).toEqual(["HelveticaType1 · not embedded", "Helvetica-BoldType1 · not embedded"]);
   await app.click('#propsDialog button[value="cancel"]');
+});
+
+test("recent files reopen where the reader left off", async () => {
+  const dir = workDir();
+  const path = await sampleIn(dir, "report.pdf");
+  let app = await launch(path);
+  await opened(app);
+  await app.fill("#pageNumber", "3");
+  // pdf.js keeps the page through a zoom change by where the view last scrolled to: let it get there.
+  await poll(() => app.exec("return window.palimpsest.viewer._location?.pageNumber")).toBe(3);
+  await app.fill("#zoomSelect", "1.5");
+  await poll(() => app.value("#zoomSelect")).toBe("1.5");
+  await new Promise((r) => setTimeout(r, 600)); // positions are written a moment after a change
+  await closed();
+
+  // Started again without a file: the start screen lists it.
+  app = await launch();
+  await poll(() => app.text("#recentList .file-name"), STARTUP).toBe("report.pdf");
+  expect(await app.attr("#recentList .recent-file", "title")).toBe(path);
+  await app.click("#recentList .recent-file");
+  // (Page 1 is out of view now, so not rendered: wait for the document, not its first page.)
+  await poll(() => app.text("#pageCount"), STARTUP).toBe("/ 5");
+  await poll(() => app.value("#pageNumber")).toBe("3");
+  expect(await app.value("#zoomSelect")).toBe("1.5");
+
+  // And the toolbar's menu; clearing it empties both.
+  await app.click("#btnRecent");
+  await poll(() => app.visible("#recentMenu")).toBe(true);
+  expect(await app.exec(`return [...document.querySelectorAll("#recentMenu [data-path]")].map((b) => b.textContent)`)).toEqual(["report.pdf"]);
+  await app.exec(`[...document.querySelectorAll("#recentMenu [role=menuitem]")].find((b) => b.textContent === "Clear recent files").click()`);
+  await app.click("#btnRecent");
+  await poll(() => app.exec(`return document.querySelector("#recentMenu [role=menuitem]").textContent`)).toBe("No recent files");
+  expect(await app.count("#recentList li")).toBe(0);
 });

@@ -40,6 +40,18 @@
       };
     },
     setFullscreen: (on) => invoke("set_fullscreen", { on: !!on }),
+    recentFiles: async () =>
+      (await invoke("recent_files")).map(([path, page, zoom]) => ({ name: baseName(path), path, page, zoom })),
+    addRecent: (path, place) =>
+      invoke("add_recent", {
+        path: String(path),
+        page: Number.isInteger(place?.page) && place.page > 0 ? place.page : null,
+        zoom: typeof place?.zoom === "string" ? place.zoom : null,
+      }),
+    async openRecent(path) {
+      return readPdf(await invoke("open_recent", { path: String(path) }));
+    },
+    forgetRecent: () => invoke("forget_recent"),
     // The bytes travel as the raw request body; the path goes in a header.
     write: (path, bytes) => invoke("write_file", bytes, { headers: { "x-path": encodeURIComponent(String(path)) } }),
   };

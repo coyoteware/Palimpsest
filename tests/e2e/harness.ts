@@ -4,7 +4,7 @@
  * pointing at places on a page. The app is a test build (`--features e2e`,
  * see src-tauri/src/e2e.rs); tests/e2e/setup.ts starts the driver.
  */
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, inject } from "vitest";
@@ -26,6 +26,10 @@ export async function launch(...files: string[]) {
   const started = () =>
     app.exec<boolean>("return document.readyState === 'complete' && !!window.palimpsest").catch(() => false);
   await poll(started, STARTUP).toBe(true);
+  // While the app is busy (saving, reloading after a page operation) an overlay takes clicks, as it does
+  // from the user; a dialog it opens meanwhile (a password) sits above it.
+  app.settle = () =>
+    poll(() => app.exec<boolean>("return !!document.querySelector('dialog[open]') || (document.querySelector('#busy')?.hidden ?? true)")).toBe(true);
   return app;
 }
 
@@ -40,6 +44,8 @@ export function useApp() {
   beforeEach(() => {
     answer({});
     writeFileSync(join(hooks, "log.jsonl"), "");
+    // Test builds keep the recent files list here (see main.rs).
+    rmSync(join(hooks, "recent.txt"), { force: true });
   });
   afterEach(async () => {
     if (!current) return;
