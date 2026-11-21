@@ -115,6 +115,9 @@ describe("split ranges", () => {
     expect(splitNames("big.pdf", [[0, 9], [99, 119]], 120)).toEqual(["big-p001-010.pdf", "big-p100-120.pdf"]);
     expect(splitNames("", [[0, 0]], 1)).toEqual(["document-p1.pdf"]);
     expect(splitNames("a.pdf", [[0, 1], [0, 1], [0, 1]], 2)).toEqual(["a-p1-2.pdf", "a-p1-2 (2).pdf", "a-p1-2 (3).pdf"]);
+    // Characters the shell refuses in a file name (legal in macOS and Linux names).
+    expect(splitNames("Minutes 10:30.pdf", [[0, 0]], 1)).toEqual(["Minutes 10-30-p1.pdf"]);
+    expect(splitNames('a\\b/c*?"<>|.pdf', [[0, 0]], 1)).toEqual(["a-b-c-------p1.pdf"]);
   });
 
   it("a range plan lists its pages", () => expect(src(rangePlan([2, 4]))).toBe("0:2 0:3 0:4"));

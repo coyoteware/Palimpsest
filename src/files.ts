@@ -69,4 +69,4 @@ export async function saveToFolder(names: string[]): Promise<{ folder: string; f
   };
 }
 
-export const withSuffix =(name: string, suffix: string) => name.replace(/(\.pdf)?$/i, `${suffix}.pdf`);
+export const withSuffix = (name: string, suffix: string) => name.replace(/(\.pdf)?$/i, `${suffix}.pdf`);

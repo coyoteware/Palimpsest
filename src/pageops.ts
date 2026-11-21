@@ -122,10 +122,11 @@ export function parseRanges(text: string, n: number): PageRange[] {
 /**
  * File names for the parts of a split, from the document's name: "report.pdf"
  * gives "report-p1-3.pdf", "report-p4.pdf". Page numbers are zero-padded to
- * the width of the page count so the files sort in page order.
+ * the width of the page count so the files sort in page order. Characters a
+ * file name cannot have on some system (":" in "10:30") become "-".
  */
 export function splitNames(fileName: string, ranges: PageRange[], n: number): string[] {
-  const base = fileName.replace(/\.pdf$/i, "") || "document";
+  const base = fileName.replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|\x00-\x1f]/g, "-") || "document";
   const width = String(n).length;
   const num = (i: number) => String(i + 1).padStart(width, "0");
   const names = ranges.map(([a, b]) => `${base}-p${num(a)}${a === b ? "" : `-${num(b)}`}`);
