@@ -14,6 +14,7 @@ export const Key = {
   Escape: "\uE00C",
   Enter: "\uE007",
   Space: "\uE00D",
+  Tab: "\uE004",
   ArrowLeft: "\uE012",
   ArrowUp: "\uE013",
   ArrowRight: "\uE014",

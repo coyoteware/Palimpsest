@@ -48,7 +48,7 @@ test("tabs: open several files, switch keeping each one's place and edits, close
 
   // Back to b (Ctrl+Tab): page 3, still unsaved, the drawing still there.
   await app.exec("document.querySelector('#viewerContainer').focus()");
-  await app.press(Key.Control, "");
+  await app.press(Key.Control, Key.Tab);
   await poll(() => app.text("#pageCount")).toBe("/ 3");
   await poll(() => app.value("#pageNumber")).toBe("3");
   expect(await dirty(app)).toBe(true);
@@ -66,7 +66,7 @@ test("tabs: open several files, switch keeping each one's place and edits, close
   await poll(() => tabs(app)).toEqual(["*a.pdf", "b-out.pdf ●"]);
 
   // Closing: a document with unsaved changes asks first.
-  await app.press(Key.Control, "");
+  await app.press(Key.Control, Key.Tab);
   await poll(() => tabs(app)).toEqual(["a.pdf", "*b-out.pdf ●"]);
   await app.press(Key.Control, "w");
   await poll(() => app.exec("return document.querySelector('#confirmDialog').open")).toBe(true);

@@ -20,15 +20,32 @@ test("form JavaScript calculates and formats fields, and the result is saved", a
   // The sandbox starts after the page; typing before it is ready would bypass the scripts.
   await poll(() => app.exec("return window.palimpsest.scripting.ready")).toBe(true);
 
-  await app.click(field("a"));
+  // What the sandbox sends back, to explain a failure.
+  await app.exec(`window.__fromSandbox = [];
+    addEventListener("updatefromsandbox", (e) => window.__fromSandbox.push(JSON.stringify(e.detail)), true);`);
+  const explain = async (e: unknown) => {
+    console.log(
+      "form state:",
+      await app.exec(`return JSON.stringify({
+        focused: document.activeElement?.name || document.activeElement?.tagName,
+        values: [...document.querySelectorAll(".annotationLayer input")].map((i) => i.name + "=" + i.value),
+        fromSandbox: window.__fromSandbox,
+      })`),
+    );
+    throw e;
+  };
+
   // A keystroke script: "a" only takes numbers.
-  await app.keys("2x");
-  await poll(() => app.value(field("a"))).toBe("2");
-  await app.press(""); // Tab to "b"
-  await app.keys("3");
-  await app.press("");
+  await app.type(field("a"), "2x");
+  await poll(() => app.value(field("a")))
+    .toBe("2")
+    .catch(explain);
+  await app.type(field("b"), "3");
+  await app.press(Key.Tab); // leave "b": the calculation runs
   // "total" is calculated, then shown as currency.
-  await poll(() => app.value(field("total"))).toBe("$5.00");
+  await poll(() => app.value(field("total")))
+    .toBe("$5.00")
+    .catch(explain);
 
   const out = join(dir, "out.pdf");
   answer({ save: out });
