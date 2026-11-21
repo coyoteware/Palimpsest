@@ -49,11 +49,14 @@ test("form JavaScript calculates and formats fields, and the result is saved", a
     .toBe("2")
     .catch(explain);
   await app.type(field("b"), "3");
-  await app.press(Key.Tab); // leave "b": the calculation runs
+  // Leave "b" by Tab: the calculation runs. "b" is the last field, so Tab wraps round to the
+  // toolbar rather than leaving the app (which WebView2 would otherwise do, losing the commit).
+  await app.press(Key.Tab);
   // "total" is calculated, then shown as currency.
   await poll(() => app.value(field("total")))
     .toBe("$5.00")
     .catch(explain);
+  expect(await app.exec("return !!document.activeElement?.closest('#app')")).toBe(true);
 
   const out = join(dir, "out.pdf");
   answer({ save: out });

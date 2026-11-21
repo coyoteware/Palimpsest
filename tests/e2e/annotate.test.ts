@@ -138,6 +138,8 @@ test("Fill & Sign: marks, the date, and a typed signature kept for next time", a
   await poll(() => app.text("#signHint")).toBe("Click on the page to add your signature");
   await clickPage(app, 1, 300, 420);
   await poll(() => app.count(".stampEditor")).toBe(1);
+  // pdf.js shows an image once it has loaded it.
+  await poll(() => app.visible(".stampEditor")).toBe(true);
   // Placed where clicked, and shown (the date too).
   const centre = await app.exec<[number, number]>(
     `const p = document.querySelector('.page[data-page-number="1"]').getBoundingClientRect();

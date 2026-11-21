@@ -326,6 +326,7 @@ export class App {
     this.#wireSignMenu();
     this.#wireRecent();
     this.#wireTabs();
+    wrapFocus();
     this.#wirePresentation();
     container.addEventListener("wheel", (e) => this.#onWheel(e), { passive: false });
     window.addEventListener("beforeunload", (e) => {
@@ -2760,6 +2761,31 @@ async function confirmDialog(title: string, message: string, ok: string) {
   $("confirmMsg").textContent = message;
   $("confirmOk").textContent = ok;
   return (await showDialog($<HTMLDialogElement>("confirmDialog"))) === "ok";
+}
+
+/**
+ * Keep Tab inside the app. Past the last control, WebView2 moves focus out of
+ * the page (in an app window, to nowhere): focus is lost, and a form field left
+ * that way is not committed (pdf.js takes a blur to nowhere for the window
+ * losing focus). Two stops at the ends of the page send focus round to the
+ * other end instead, as WebKitGTK does by itself.
+ */
+function wrapFocus() {
+  const tabbable = () =>
+    [...$("app").querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")].filter(
+      (el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled && el.getClientRects().length > 0,
+    );
+  const stop = (where: "start" | "end") => {
+    const el = Object.assign(document.createElement("span"), { tabIndex: 0, className: "focus-wrap" });
+    el.setAttribute("aria-hidden", "true");
+    el.addEventListener("focus", () => {
+      const all = tabbable();
+      (where === "end" ? all[0] : all.at(-1))?.focus();
+    });
+    return el;
+  };
+  document.body.prepend(stop("start"));
+  document.body.append(stop("end"));
 }
 
 /** The folder part of a path, for showing beside a file name. */

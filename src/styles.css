@@ -62,6 +62,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 [hidden] { display: none !important; }
+/* Focus stops that keep Tab inside the app (see wrapFocus in app.ts). */
+.focus-wrap { position: fixed; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .muted { color: var(--muted); }
 
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
