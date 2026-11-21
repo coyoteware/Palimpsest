@@ -520,6 +520,12 @@ test("opens password-protected PDFs and keeps them encrypted", async () => {
   await app.fill("#passwordInput", "secret");
   await app.press(Key.Enter);
   await opened(app);
+  // Properties say so.
+  await app.click("#btnProps");
+  await poll(() => app.exec(`return [...document.querySelectorAll("#propsFacts dd")].map((d) => d.textContent)`)).toContain(
+    "Encrypted, password to open",
+  );
+  await app.click('#propsDialog button[value="cancel"]');
 
   await app.click(thumb(1));
   await app.click("#pgDelete");

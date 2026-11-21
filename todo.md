@@ -22,7 +22,7 @@ Features Adobe Reader (and Acrobat Pro) have that Palimpsest lacks, ordered by c
 - [x] **Hand tool, marquee zoom, snapshot to clipboard**.
 - [x] **Export pages as images** (PNG, JPEG).
 - [ ] **Tabs**: several documents in one window.
-- [ ] **Fuller properties**: fonts, security and permissions, PDF version, producer.
+- [x] **Fuller properties**: fonts, security and permissions, PDF version, producer.
 
 ## Tier 3: Acrobat Pro territory
 

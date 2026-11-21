@@ -1,5 +1,5 @@
 import "pdfjs-dist/web/pdf_viewer.css";
-import { AnnotationEditorParamsType as P, AnnotationEditorType as T, AnnotationMode } from "pdfjs-dist";
+import { AnnotationEditorParamsType as P, AnnotationEditorType as T, AnnotationMode, PDFDateString } from "pdfjs-dist";
 import {
   EventBus,
   FindState,
@@ -12,6 +12,7 @@ import {
   SpreadMode,
 } from "pdfjs-dist/web/pdf_viewer.mjs";
 import { desktop } from "./desktop";
+import { describePermissions, fontInfo, uniqueFonts, yesNo, type FontInfo } from "./docinfo";
 import * as files from "./files";
 import { DocHistory } from "./history";
 import { icon } from "./icons";
@@ -1034,14 +1035,25 @@ export class App {
     const vp = (await doc.getPage(this.page)).getViewport({ scale: 1 });
     const size = `${(vp.width / 72).toFixed(2)} × ${(vp.height / 72).toFixed(2)} in (${Math.round((vp.width / 72) * 25.4)} × ${Math.round((vp.height / 72) * 25.4)} mm)`;
     const bytes = (await doc.getDownloadInfo()).length;
+    const date = (v: unknown) => (typeof v === "string" && PDFDateString.toDateObject(v)?.toLocaleString()) || "—";
+    const flags = info as unknown as Record<string, unknown>;
+    const [permissions, markInfo] = await Promise.all([doc.getPermissions().catch(() => null), doc.getMarkInfo().catch(() => null)]);
     const facts: [string, string][] = [
       ["File", this.fileName],
       ["Size", `${(bytes / 1024).toFixed(bytes > 10240 ? 0 : 1)} KB`],
       ["Pages", String(doc.numPages)],
       ["Page size", size],
+      ["Created", date(info.CreationDate)],
+      ["Modified", date(info.ModDate)],
       ["PDF version", info.PDFFormatVersion ?? "—"],
       ["Creator", info.Creator || "—"],
       ["Producer", info.Producer || "—"],
+      ["Security", flags.EncryptFilterName ? (this.#password ? "Encrypted, password to open" : "Encrypted") : "None"],
+      ["Permissions", describePermissions(permissions && [...permissions])],
+      ["Forms", flags.IsXFAPresent ? "XFA" : flags.IsAcroFormPresent ? "Yes" : "No"],
+      ["Digital signatures", flags.IsSignaturesPresent ? "Yes (any change makes them invalid)" : "No"],
+      ["Tagged (accessible)", yesNo(markInfo?.Marked)],
+      ["Fast web view", yesNo(flags.IsLinearized)],
     ];
     const dl = $("propsFacts");
     dl.textContent = "";
@@ -1049,8 +1061,16 @@ export class App {
       dl.append(Object.assign(document.createElement("dt"), { textContent: k }));
       dl.append(Object.assign(document.createElement("dd"), { textContent: v }));
     }
+    // Fonts are listed on demand: finding them means reading every page.
+    const fontsBox = $<HTMLDetailsElement>("propsFonts");
+    fontsBox.open = false;
+    $("fontList").replaceChildren();
+    const scan = new AbortController();
+    fontsBox.addEventListener("toggle", () => fontsBox.open && void this.#listFonts(doc, scan.signal), { once: true, signal: scan.signal });
 
-    if ((await showDialog($<HTMLDialogElement>("propsDialog"))) !== "ok") return;
+    const answer = await showDialog($<HTMLDialogElement>("propsDialog"));
+    scan.abort();
+    if (answer !== "ok") return;
     const next = {
       title: inputs.title.value.trim(),
       author: inputs.author.value.trim(),
@@ -1059,6 +1079,43 @@ export class App {
     };
     if (Object.entries(next).every(([k, v]) => v === original[k])) return;
     await this.#edit("Edit properties", (b) => ops.writeInfo(b, next));
+  }
+
+  /** Fill the properties dialog's font list, reading each page; stops if `signal` aborts. */
+  async #listFonts(doc: PDFDocumentProxy, signal: AbortSignal) {
+    const list = $("fontList");
+    const status = (text: string) => list.replaceChildren(Object.assign(document.createElement("li"), { className: "muted", textContent: text }));
+    status("Looking for fonts…");
+    let fontsDoc: PDFDocumentProxy | null = null;
+    try {
+      ({ doc: fontsDoc } = await openPdf(await doc.getData(), { password: this.#password, fontExtraProperties: true }));
+      const found: FontInfo[] = [];
+      for (let n = 1; n <= fontsDoc.numPages && !signal.aborted; n++) {
+        if (fontsDoc.numPages > 20) status(`Looking for fonts… page ${n} of ${fontsDoc.numPages}`);
+        const page = await fontsDoc.getPage(n);
+        await page.getOperatorList();
+        for (const [, obj] of (page as unknown as { commonObjs: Iterable<[string, unknown]> }).commonObjs) {
+          const font = fontInfo(obj);
+          if (font) found.push(font);
+        }
+      }
+      if (signal.aborted) return;
+      const fonts = uniqueFonts(found);
+      if (!fonts.length) return status("No fonts: the pages have no text.");
+      list.replaceChildren(
+        ...fonts.map((f) => {
+          const li = document.createElement("li");
+          const note = f.embedded ? (f.subset ? "embedded subset" : "embedded") : "not embedded";
+          li.append(Object.assign(document.createElement("span"), { className: "font-name", textContent: f.name }));
+          li.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `${f.type} · ${note}` }));
+          return li;
+        }),
+      );
+    } catch (e) {
+      if (!signal.aborted) status(`Could not read the fonts: ${errorText(e)}`);
+    } finally {
+      await fontsDoc?.loadingTask.destroy();
+    }
   }
 
   // --------------------------------------------------------- undo / redo

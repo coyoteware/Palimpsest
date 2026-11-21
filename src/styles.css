@@ -433,6 +433,12 @@ dialog menu button:not(.primary) { border-color: var(--border); }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
 
+#propsDialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+.fonts { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; }
+.fonts summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+.font-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 180px; overflow-y: auto; display: grid; gap: 4px; }
+.font-list li { display: flex; justify-content: space-between; gap: 12px; }
+.font-name { overflow-wrap: anywhere; }
 .choices { display: grid; gap: 10px; margin: 4px 0 12px; }
 .choice { display: flex; align-items: center; gap: 8px; min-height: 30px; }
 dialog .choice input[type="radio"] { width: auto; margin: 0; accent-color: var(--accent); }

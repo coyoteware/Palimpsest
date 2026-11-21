@@ -250,3 +250,31 @@ test("snapshot copies a box of the page as an image", async () => {
     expect(shellLog().flatMap((e) => e.suggestedName ?? [])).toEqual(["sample-p1-snapshot.png"]);
   }
 });
+
+test("document properties: security, forms, dates and the fonts used", async () => {
+  const dir = workDir();
+  const app = await launch(await sampleIn(dir));
+  await opened(app);
+  await app.click("#btnProps");
+  await poll(() => app.exec("return document.querySelector('#propsDialog').open")).toBe(true);
+  const facts = () =>
+    app.exec<Record<string, string>>(
+      `const dts = [...document.querySelectorAll("#propsFacts dt")];
+       return Object.fromEntries(dts.map((dt) => [dt.textContent, dt.nextElementSibling.textContent]));`,
+    );
+  await poll(facts).toMatchObject({
+    Pages: "5",
+    Security: "None",
+    Permissions: "No restrictions",
+    Forms: "Yes",
+    "Digital signatures": "No",
+    "Tagged (accessible)": "No",
+  });
+  expect((await facts()).Created).not.toBe("—");
+
+  // Fonts are found when asked for: the sample uses two standard fonts, not embedded.
+  await app.click("#propsFonts summary");
+  const fonts = () => app.exec<string[]>(`return [...document.querySelectorAll("#fontList li")].map((li) => li.textContent)`);
+  await poll(fonts).toEqual(["HelveticaType1 · not embedded", "Helvetica-BoldType1 · not embedded"]);
+  await app.click('#propsDialog button[value="cancel"]');
+});
