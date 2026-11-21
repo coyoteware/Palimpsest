@@ -34,9 +34,12 @@ const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getEleme
  * editors; the others leave pdf.js in its plain mode and handle the pointer
  * here, creating pdf.js editors (ink, text, images) from what the user does.
  */
-type Tool = "none" | "text" | "note" | "ink" | "shape" | "highlight" | "markup" | "image" | "sign";
+type Tool = "none" | "hand" | "zoom" | "snapshot" | "text" | "note" | "ink" | "shape" | "highlight" | "markup" | "image" | "sign";
 const MODE: Record<Tool, number> = {
   none: T.NONE,
+  hand: T.NONE,
+  zoom: T.NONE,
+  snapshot: T.NONE,
   text: T.FREETEXT,
   note: T.NONE,
   ink: T.INK,
@@ -54,8 +57,19 @@ const TOOL_OF_MODE = new Map<number, Tool>([
   [T.STAMP, "image"],
 ]);
 /** Tools that work by dragging or clicking on a page (rather than selecting text). */
-const POINTER_TOOLS: ReadonlySet<Tool> = new Set(["note", "shape", "sign"]);
-const TOOL_KEYS: Record<string, Tool> = { v: "none", t: "text", n: "note", d: "ink", s: "shape", h: "highlight", u: "markup", i: "image", g: "sign" };
+const POINTER_TOOLS: ReadonlySet<Tool> = new Set(["hand", "zoom", "snapshot", "note", "shape", "sign"]);
+const TOOL_KEYS: Record<string, Tool> = {
+  v: "none",
+  z: "zoom",
+  t: "text",
+  n: "note",
+  d: "ink",
+  s: "shape",
+  h: "highlight",
+  u: "markup",
+  i: "image",
+  g: "sign",
+};
 const HIGHLIGHT_COLORS = "yellow=#FFFF98,green=#53FFBC,blue=#80EBFF,pink=#FFCBE6,red=#FF4F5F";
 
 interface UIManager {
@@ -124,6 +138,9 @@ const PARAM_KEYS: [number, keyof ToolParams][] = [
 /** The pdf.js parameters each pdf.js tool starts with. */
 const TOOL_PARAMS: Record<Tool, (keyof ToolParams)[]> = {
   none: [],
+  hand: [],
+  zoom: [],
+  snapshot: [],
   text: ["textColor", "textSize"],
   note: [],
   ink: ["inkColor", "inkThickness", "inkOpacity"],
@@ -1150,6 +1167,7 @@ export class App {
     const container = $("viewerContainer");
     container.addEventListener("pointerdown", (e) => {
       if (e.button !== 0 || !this.doc || this.presenting || !POINTER_TOOLS.has(this.#tool)) return;
+      if (this.#tool === "hand") return this.#pan(e);
       const hit = this.#pageAt(e);
       if (!hit) return;
       e.preventDefault();
@@ -1157,6 +1175,7 @@ export class App {
       container.focus({ preventScroll: true });
       if (this.#tool === "sign") void this.#place(hit.pageIndex, hit.x, hit.y);
       else if (this.#tool === "shape") this.#dragShape(e, hit);
+      else if (this.#tool === "zoom" || this.#tool === "snapshot") this.#dragArea(e, hit);
       else if (this.#tool === "note") void this.addNote(hit.pageIndex, this.#toPdf(hit.pageIndex, hit.x, hit.y));
     });
     // Text markup applies to the text selected with the tool on.
@@ -1212,6 +1231,127 @@ export class App {
     container.addEventListener("pointermove", move);
     container.addEventListener("pointerup", up);
     container.addEventListener("pointercancel", up);
+  }
+
+  /** Hand tool: drag to scroll. */
+  #pan(down: PointerEvent) {
+    const container = $("viewerContainer");
+    down.preventDefault();
+    container.setPointerCapture(down.pointerId);
+    container.classList.add("panning");
+    let [x, y] = [down.clientX, down.clientY];
+    const move = (e: PointerEvent) => {
+      container.scrollLeft -= e.clientX - x;
+      container.scrollTop -= e.clientY - y;
+      [x, y] = [e.clientX, e.clientY];
+    };
+    const up = () => {
+      container.classList.remove("panning");
+      container.removeEventListener("pointermove", move);
+      container.removeEventListener("pointerup", up);
+      container.removeEventListener("pointercancel", up);
+    };
+    container.addEventListener("pointermove", move);
+    container.addEventListener("pointerup", up);
+    container.addEventListener("pointercancel", up);
+  }
+
+  /**
+   * Marquee zoom and snapshot: drag out a rectangle on a page. Zoom fits it to
+   * the window (a click zooms in a step, Alt+click out); snapshot copies it as
+   * an image.
+   */
+  #dragArea(down: PointerEvent, hit: PageHit) {
+    const { el, pageIndex, rect } = hit;
+    const box = document.createElement("div");
+    box.className = "area-preview";
+    el.append(box);
+    const start: marks.Point = [hit.x, hit.y];
+    let end = start;
+    const container = $("viewerContainer");
+    container.setPointerCapture(down.pointerId);
+    const move = (e: PointerEvent) => {
+      end = [Math.max(0, Math.min(rect.width, e.clientX - rect.left)), Math.max(0, Math.min(rect.height, e.clientY - rect.top))];
+      Object.assign(box.style, {
+        left: `${Math.min(start[0], end[0])}px`,
+        top: `${Math.min(start[1], end[1])}px`,
+        width: `${Math.abs(end[0] - start[0])}px`,
+        height: `${Math.abs(end[1] - start[1])}px`,
+      });
+    };
+    const up = (e: PointerEvent) => {
+      container.removeEventListener("pointermove", move);
+      container.removeEventListener("pointerup", up);
+      container.removeEventListener("pointercancel", up);
+      box.remove();
+      const area = [Math.min(start[0], end[0]), Math.min(start[1], end[1]), Math.abs(end[0] - start[0]), Math.abs(end[1] - start[1])] as const;
+      const isClick = area[2] < 6 && area[3] < 6;
+      if (this.#tool === "zoom") {
+        if (isClick) this.viewer.updateScale({ steps: e.altKey ? -1 : 1, origin: [e.clientX, e.clientY] });
+        else this.#zoomTo(pageIndex, ...area);
+      } else if (!isClick) void this.snapshot(pageIndex, ...area);
+    };
+    container.addEventListener("pointermove", move);
+    container.addEventListener("pointerup", up);
+    container.addEventListener("pointercancel", up);
+  }
+
+  /** Zoom so the area (CSS pixels on the page's view) fills the window. */
+  #zoomTo(pageIndex: number, x: number, y: number, width: number, height: number) {
+    const view = this.viewer.getPageView(pageIndex);
+    const container = $("viewerContainer");
+    const factor = Math.min(container.clientWidth / width, container.clientHeight / height) * 0.95;
+    const scale = Math.min(10, this.viewer.currentScale * factor);
+    // The area's centre in PDF points, and the window's size in points at the new scale.
+    const [cx, cy] = this.#toPdf(pageIndex, x + width / 2, y + height / 2);
+    const cssPerPoint = (view.viewport.scale / this.viewer.currentScale) * scale;
+    const [w, h] = [container.clientWidth / cssPerPoint, container.clientHeight / cssPerPoint];
+    this.viewer.scrollPageIntoView({
+      pageNumber: pageIndex + 1,
+      destArray: [null, { name: "XYZ" }, cx - w / 2, cy + h / 2, scale],
+      allowNegativeOffset: true,
+    });
+  }
+
+  /** The last snapshot's size in pixels (for the tests). */
+  lastSnapshot: { width: number; height: number } | null = null;
+
+  /**
+   * Copy an area of a page (CSS pixels on its view) to the clipboard as a PNG,
+   * at twice the screen's resolution. Where the clipboard refuses, offer to save it.
+   */
+  async snapshot(pageIndex: number, x: number, y: number, width: number, height: number) {
+    const view = this.viewer.getPageView(pageIndex).viewport;
+    const ratio = 2 * (window.devicePixelRatio || 1);
+    const blob = await this.#withSavedDoc(async (doc) => {
+      const page = await doc.getPage(pageIndex + 1);
+      const viewport = page.getViewport({
+        scale: view.scale * ratio,
+        rotation: view.rotation,
+        offsetX: -x * ratio,
+        offsetY: -y * ratio,
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(width * ratio));
+      canvas.height = Math.max(1, Math.round(height * ratio));
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvas, viewport, annotationMode: AnnotationMode.ENABLE_STORAGE }).promise;
+      this.lastSnapshot = { width: canvas.width, height: canvas.height };
+      return new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not make the image."))), "image/png"));
+    });
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast("Copied to the clipboard");
+    } catch {
+      const name = files.withSuffix(this.fileName || "document", `-p${pageIndex + 1}-snapshot`).replace(/\.pdf$/i, ".png");
+      const saved = await files.saveAs(name, new Uint8Array(await blob.arrayBuffer()), "png").catch((e: unknown) => {
+        toast(errorText(e), "error");
+        return undefined;
+      });
+      if (saved) toast(`The clipboard is not available here; saved ${saved.name}`);
+    }
   }
 
   /** Underline, strike out or squiggle the selected text, with the markup tool's settings. */

@@ -336,8 +336,13 @@ body {
 .toolbar .seg button.active { background: var(--accent-soft); color: var(--accent); }
 .draw-preview { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 30; pointer-events: none; overflow: visible; }
 /* Tools that draw or place on the page take the pointer from the page's own layers. */
-#viewerContainer:is([data-tool="shape"], [data-tool="sign"]) :is(.textLayer, .annotationLayer, .annotationEditorLayer) { pointer-events: none !important; user-select: none; }
-#viewerContainer:is([data-tool="shape"], [data-tool="sign"]) .page { cursor: crosshair; }
+#viewerContainer:is([data-tool="hand"], [data-tool="zoom"], [data-tool="snapshot"], [data-tool="note"], [data-tool="shape"], [data-tool="sign"])
+  :is(.textLayer, .annotationLayer, .annotationEditorLayer) { pointer-events: none !important; user-select: none; }
+#viewerContainer:is([data-tool="shape"], [data-tool="sign"], [data-tool="snapshot"], [data-tool="note"]) .page { cursor: crosshair; }
+#viewerContainer[data-tool="zoom"] .page { cursor: zoom-in; }
+#viewerContainer[data-tool="hand"] { cursor: grab; user-select: none; }
+#viewerContainer[data-tool="hand"].panning { cursor: grabbing; }
+.area-preview { position: absolute; z-index: 30; pointer-events: none; border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 #viewerContainer[data-tool="markup"] .textLayer { cursor: text; }
 
 .sign-menu .signature-item { min-height: 52px; padding: 4px 10px 4px 28px; }

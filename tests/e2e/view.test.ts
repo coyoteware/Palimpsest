@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { LAYER_BOX } from "../fixtures/rich";
-import { answer, dirty, launch, opened, poll, richIn, sampleIn, savedTo, shellLog, STARTUP, useApp, workDir } from "./harness";
+import { answer, dirty, launch, onPage, opened, poll, richIn, sampleIn, savedTo, shellLog, STARTUP, useApp, workDir } from "./harness";
 import { Key, type Session } from "./webdriver";
 
 useApp();
@@ -195,4 +195,58 @@ test("presentation mode: full screen, page by page, Escape ends it", async () =>
   await app.click("#btnView");
   await app.click('#viewMenu [data-act="present"]');
   await poll(() => app.attr("#app", "class")).toMatch(/\bpresenting\b/);
+});
+
+test("hand tool scrolls by dragging; zoom tool zooms to a box", async () => {
+  const dir = workDir();
+  const app = await launch(await sampleIn(dir));
+  await opened(app);
+  const scrollTop = () => app.exec<number>("return document.querySelector('#viewerContainer').scrollTop");
+  const scale = () => app.exec<number>("return window.palimpsest.viewer.currentScale");
+
+  await app.click('.toolbar .tool[data-tool="hand"]');
+  const before = await scrollTop();
+  const [x, y] = await app.center("#viewerContainer");
+  await app.drag([[x, y + 150], [x, y + 50], [x, y - 150]]);
+  expect((await scrollTop()) - before).toBeGreaterThan(250);
+  // Dragging the page does not select text.
+  expect(await app.exec("return window.getSelection().isCollapsed")).toBe(true);
+
+  await app.exec("document.querySelector('#viewerContainer').focus()");
+  await app.press("z");
+  await poll(() => app.attr('.toolbar .tool[data-tool="zoom"]', "aria-checked")).toBe("true");
+  const s0 = await scale();
+  // A box a quarter of the page wide fills the window: about four times the zoom.
+  const width = await app.exec<number>("return document.querySelector('.page').getBoundingClientRect().width / 4");
+  const page = await app.exec<number>("return window.palimpsest.page");
+  const a = await onPage(app, page, 100, 100);
+  await app.drag([a, [a[0] + width / 2, a[1] + 20], [a[0] + width, a[1] + 40]]);
+  await poll(scale).toBeGreaterThan(s0 * 3);
+  const s1 = await scale();
+  // Alt+click zooms out a step, a click zooms in again.
+  const c = await app.center("#viewerContainer");
+  await app.clickAt(c, Key.Alt);
+  await poll(scale).toBeLessThan(s1);
+  const s2 = await scale();
+  await app.clickAt(c);
+  await poll(scale).toBeGreaterThan(s2);
+});
+
+test("snapshot copies a box of the page as an image", async () => {
+  const dir = workDir();
+  const app = await launch(await sampleIn(dir));
+  await opened(app);
+  // Where the clipboard is not available, the image is saved instead.
+  const out = join(dir, "snap.png");
+  answer({ save: out });
+  await app.click('.toolbar .tool[data-tool="snapshot"]');
+  const a = await onPage(app, 1, 100, 100);
+  await app.drag([a, [a[0] + 100, a[1] + 40], [a[0] + 200, a[1] + 80]]);
+  await poll(() => app.text(".toast")).toMatch(/Copied to the clipboard|saved snap\.png/);
+  const ratio = await app.exec<number>("return 2 * (window.devicePixelRatio || 1)");
+  expect(await app.exec("return window.palimpsest.lastSnapshot")).toEqual({ width: 200 * ratio, height: 80 * ratio });
+  if ((await app.text(".toast"))!.includes("saved")) {
+    expect(readFileSync(out).subarray(1, 4).toString()).toBe("PNG");
+    expect(shellLog().flatMap((e) => e.suggestedName ?? [])).toEqual(["sample-p1-snapshot.png"]);
+  }
 });
