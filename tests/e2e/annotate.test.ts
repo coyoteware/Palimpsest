@@ -192,3 +192,51 @@ test("Fill & Sign: a drawn signature", async () => {
   const annots = (await saveAs(app, dir)).pages[0].annotations;
   expect(annots.map((a) => a.subtype)).toContain("Stamp");
 });
+
+test("sticky notes, and the comments panel: listed, shown, edited, deleted", async () => {
+  const { app, dir } = await openSample();
+  await app.exec("document.querySelector('#viewerContainer').focus()");
+  await app.press("n");
+  await poll(() => app.attr(tool("note"), "aria-checked")).toBe("true");
+  await clickPage(app, 1, 450, 200);
+  await poll(() => app.exec("return document.querySelector('#noteDialog').open")).toBe(true);
+  await app.type("#noteText", "Check the figures");
+  await app.fill("#noteAuthor", "Ada");
+  await app.click("#noteOk");
+  // The note is on the page, as pdf.js draws notes.
+  await poll(() => app.count('.page[data-page-number="1"] .annotationLayer .textAnnotation')).toBe(1);
+
+  // A drawing not saved yet is listed too.
+  await app.press("s");
+  await dragOnPage(app, [100, 600], [250, 700]);
+  await poll(() => app.count(".inkEditor")).toBe(1);
+
+  await app.click("#tabComments");
+  const items = () =>
+    app.exec<string[]>(
+      `return [...document.querySelectorAll("#commentList .comment")].map((c) =>
+         [...c.querySelectorAll(".comment-kind, .comment-author")].map((e) => e.textContent).join(" · ") + ": " + c.querySelector(".comment-text").textContent)`,
+    );
+  await poll(items).toEqual(["Note · Ada: Check the figures", "Drawing: No comment"]);
+  expect(await app.text("#commentList .comment-page h3")).toBe("Page 1");
+
+  // Edit the note's text from the panel.
+  await app.click('#commentList .comment:first-child button[aria-label="Edit comment"]');
+  await poll(() => app.value("#noteText")).toBe("Check the figures");
+  await app.fill("#noteText", "Figures checked");
+  await app.click("#noteOk");
+  await poll(items).toEqual(["Note · Ada: Figures checked", "Drawing: No comment"]);
+
+  // Delete the drawing; undo brings it back.
+  await app.click('#commentList .comment:last-child button[aria-label="Delete"]');
+  await poll(() => app.exec("return document.querySelector('#confirmDialog').open")).toBe(true);
+  expect(await app.text("#confirmTitle")).toBe("Delete this drawing?");
+  await app.click("#confirmOk");
+  await poll(items).toEqual(["Note · Ada: Figures checked"]);
+  await app.click("#btnUndo");
+  await poll(items).toEqual(["Note · Ada: Figures checked", "Drawing: No comment"]);
+
+  const annots = (await saveAs(app, dir)).pages[0].annotations;
+  expect(annots.find((a) => a.subtype === "Text")).toMatchObject({ contents: "Figures checked", author: "Ada" });
+  expect(annots.map((a) => a.subtype)).toEqual(expect.arrayContaining(["Text", "Popup", "Ink"]));
+});

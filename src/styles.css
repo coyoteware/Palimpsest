@@ -200,6 +200,26 @@ body {
 [aria-expanded="false"] > [role="group"] { display: none; }
 .tree-title { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 18px; }
 
+.comment-list, .comment-list ul { list-style: none; margin: 0; padding: 0; }
+.comment-list { padding: 4px 4px 24px; }
+.comment-page h3 { margin: 10px 6px 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.comment { display: flex; align-items: flex-start; border-radius: 6px; }
+.comment:hover { background: var(--surface-2); }
+.comment .comment-body {
+  flex: 1; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  padding: 6px 4px 6px 8px; text-align: left;
+}
+.comment .comment-body:hover { background: transparent !important; }
+.comment-meta { font-size: 11px; }
+.comment-meta > span + span::before { content: " · "; }
+.comment-text { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.comment-actions { display: flex; flex-direction: column; padding: 2px; opacity: 0.55; }
+.comment:hover .comment-actions, .comment:focus-within .comment-actions { opacity: 1; }
+#sidebar .comment-actions button.icon { width: 26px; min-height: 26px; }
+#noteDialog textarea { width: 100%; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; resize: vertical; }
+.note-author { display: grid; gap: 4px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+
 .attachment-list { list-style: none; margin: 0; padding: 6px 4px; }
 .attachment-list .file-row {
   width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 0;

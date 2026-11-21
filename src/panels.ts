@@ -2,7 +2,9 @@
  * Sidebar panels other than the page list: the document's bookmarks
  * (outline), its attached files, and its optional-content layers.
  */
+import { PDFDateString } from "pdfjs-dist";
 import type { PDFLinkService, PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
+import type { AnnotationId } from "./comments";
 import type { PDFDocumentProxy } from "./pdfjs";
 
 type OutlineItem = Awaited<ReturnType<PDFDocumentProxy["getOutline"]>>[number];
@@ -228,4 +230,120 @@ function wireTree(tree: HTMLElement, activate: (li: HTMLElement) => void) {
     e.stopPropagation();
     if (to) focusItem(to);
   });
+}
+
+// ---------------------------------------------------------------- comments
+
+/** An annotation as the comments panel lists it. */
+export interface CommentItem extends AnnotationId {
+  subtype: string;
+  author: string;
+  date: Date | null;
+  text: string;
+  /** PDF points: [left, bottom, right, top]. */
+  rect: number[];
+}
+
+/** Not comments: links, form fields, and the popups that show other annotations' text. */
+const NOT_COMMENTS = new Set(["Link", "Widget", "Popup"]);
+
+const KIND: Record<string, string> = {
+  Text: "Note",
+  FreeText: "Text box",
+  Ink: "Drawing",
+  Highlight: "Highlight",
+  Underline: "Underline",
+  StrikeOut: "Strike-out",
+  Squiggly: "Squiggly underline",
+  Square: "Rectangle",
+  Circle: "Ellipse",
+  Line: "Line",
+  Polygon: "Polygon",
+  PolyLine: "Polyline",
+  Stamp: "Stamp",
+  FileAttachment: "Attached file",
+  Caret: "Insertion",
+};
+
+export const commentKind = (subtype: string) => KIND[subtype] ?? subtype;
+
+/** Every annotation in `doc` that is a comment or markup, in page order. */
+export async function collectComments(doc: PDFDocumentProxy): Promise<CommentItem[]> {
+  const items: CommentItem[] = [];
+  for (let n = 1; n <= doc.numPages; n++) {
+    const page = await doc.getPage(n);
+    for (const a of (await page.getAnnotations({ intent: "display" })) as Record<string, any>[]) {
+      if (NOT_COMMENTS.has(a.subtype) || typeof a.id !== "string" || !/^\d+R\d*$/.test(a.id)) continue;
+      const text = a.contentsObj?.str || (a.subtype === "FreeText" ? (a.textContent ?? []).join("\n") : "");
+      items.push({
+        pageIndex: n - 1,
+        id: a.id,
+        subtype: a.subtype,
+        author: a.titleObj?.str ?? "",
+        date: PDFDateString.toDateObject(a.modificationDate ?? a.creationDate ?? null),
+        text,
+        rect: Array.from(a.rect as number[]),
+      });
+    }
+  }
+  return items;
+}
+
+export interface CommentHandlers {
+  show(item: CommentItem): void;
+  edit(item: CommentItem): void;
+  remove(item: CommentItem): void;
+}
+
+/** The comments panel: one entry per comment, grouped by page. */
+export function renderComments(items: CommentItem[], label: (pageIndex: number) => string, h: CommentHandlers) {
+  const list = document.getElementById("commentList")!;
+  document.getElementById("commentsEmpty")!.hidden = items.length > 0;
+  const groups = new Map<number, CommentItem[]>();
+  for (const item of items) groups.set(item.pageIndex, [...(groups.get(item.pageIndex) ?? []), item]);
+  list.replaceChildren(
+    ...[...groups].map(([pageIndex, group]) => {
+      const section = el("li", { className: "comment-page" });
+      section.append(el("h3", { textContent: `Page ${label(pageIndex)}` }));
+      const ul = el("ul");
+      for (const item of group) {
+        const li = el("li", { className: "comment" });
+        li.dataset.id = item.id;
+        const body = el("button", { type: "button", className: "comment-body", title: "Show on the page" });
+        const meta = el("span", { className: "comment-meta muted" });
+        const parts = [
+          ["comment-kind", commentKind(item.subtype)],
+          ["comment-author", item.author],
+          ["comment-date", item.date?.toLocaleString() ?? ""],
+        ].filter(([, text]) => text);
+        meta.append(...parts.map(([className, textContent]) => el("span", { className, textContent })));
+        const text = el("span", { className: "comment-text", textContent: item.text || "No comment" });
+        if (!item.text) text.classList.add("muted");
+        body.append(meta, text);
+        body.addEventListener("click", () => h.show(item));
+        const actions = el("span", { className: "comment-actions" });
+        // A text box's comment is its text, edited on the page itself.
+        if (item.subtype !== "FreeText") actions.append(button("Edit comment", "pen", () => h.edit(item)));
+        actions.append(button("Delete", "trash", () => h.remove(item)));
+        li.append(body, actions);
+        ul.append(li);
+      }
+      section.append(ul);
+      return section;
+    }),
+  );
+}
+
+let iconOf: (name: string) => string = () => "";
+/** Panels draw their buttons with the app's icons (set once by the app). */
+export function useIcons(icon: (name: string) => string) {
+  iconOf = icon;
+}
+
+function button(label: string, iconName: string, onClick: () => void) {
+  const b = el("button", { type: "button", className: "icon", title: label });
+  b.setAttribute("aria-label", label);
+  b.innerHTML = iconOf(iconName);
+  b.addEventListener("click", onClick);
+  return b;
 }

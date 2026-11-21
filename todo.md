@@ -9,7 +9,7 @@ Features Adobe Reader (and Acrobat Pro) have that Palimpsest lacks, ordered by c
 - [x] **Rotate view**: turn the view without changing the file (`pdfViewer.pagesRotation`).
 - [x] **Back / forward**: return after following a link, Alt+Left / Alt+Right (`PDFHistory`).
 - [x] **Page labels**: the page box shows labels such as "iv (4 of 120)" (`getPageLabels()`).
-- [ ] **Comments**: sticky notes and a panel listing every comment (`AnnotationEditorType.COMMENT` / `POPUP`).
+- [x] **Comments**: sticky notes and a panel listing every comment (`AnnotationEditorType.COMMENT` / `POPUP`).
 - [x] **Fill & Sign**: typed or drawn signatures and initials, saved for reuse; check, cross and date marks (`AnnotationEditorType.SIGNATURE`).
 - [x] **Form JavaScript**: calculated fields, formatting and validation (`PDFScriptingManager` and the pdf.js sandbox).
 - [x] **Full screen / presentation mode**.

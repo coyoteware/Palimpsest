@@ -16,6 +16,7 @@ export async function inspect(bytes: Uint8Array, password?: string) {
     const annotations = (await p.getAnnotations()).map((a) => ({
       subtype: a.subtype as string,
       contents: (a.contentsObj?.str ?? a.textContent?.join("\n") ?? "") as string,
+      author: (a.titleObj?.str ?? "") as string,
       fieldName: a.fieldName as string | undefined,
       fieldValue: a.fieldValue as unknown,
       color: a.color ? `#${[...(a.color as Uint8ClampedArray)].map((c) => c.toString(16).padStart(2, "0")).join("")}` : null,

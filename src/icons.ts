@@ -43,6 +43,8 @@ const paths: Record<string, string> = {
   ellipse: '<ellipse cx="12" cy="12" rx="9" ry="6.5"/>',
   line: '<path d="M5 19 19 5"/>',
   arrow: '<path d="M5 19 19 5"/><path d="M10 5h9v9"/>',
+  note: '<path d="M4 4h16v12h-6l-4 4v-4H4z"/>',
+  comment: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
   close: '<path d="M18 6 6 18M6 6l12 12"/>',
   logo: '<path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M15 2v5h5"/><path d="M8 17c2-1 3-4 5-4s1 3 3 2"/>',
 };

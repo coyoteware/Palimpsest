@@ -16,11 +16,12 @@ import * as files from "./files";
 import { DocHistory } from "./history";
 import { icon } from "./icons";
 import { checkRadio, closeMenus, menuIsOpen, wireMenu } from "./menu";
+import * as comments from "./comments";
 import * as marks from "./marks";
 import type { EditorData, Markup, Shape } from "./marks";
 import { NavHistory, type Place } from "./navhistory";
 import * as ops from "./pageops";
-import { Panels, type Attachment } from "./panels";
+import { collectComments, commentKind, Panels, renderComments, useIcons, type Attachment, type CommentItem } from "./panels";
 import { PDFJS_ASSETS, openPdf, type PDFDocumentProxy } from "./pdfjs";
 import { printPdf } from "./print";
 import { askSignature, forgetSignatures, savedSignatures, type SavedSignature } from "./signatures";
@@ -33,10 +34,11 @@ const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getEleme
  * editors; the others leave pdf.js in its plain mode and handle the pointer
  * here, creating pdf.js editors (ink, text, images) from what the user does.
  */
-type Tool = "none" | "text" | "ink" | "shape" | "highlight" | "markup" | "image" | "sign";
+type Tool = "none" | "text" | "note" | "ink" | "shape" | "highlight" | "markup" | "image" | "sign";
 const MODE: Record<Tool, number> = {
   none: T.NONE,
   text: T.FREETEXT,
+  note: T.NONE,
   ink: T.INK,
   shape: T.NONE,
   highlight: T.HIGHLIGHT,
@@ -52,8 +54,8 @@ const TOOL_OF_MODE = new Map<number, Tool>([
   [T.STAMP, "image"],
 ]);
 /** Tools that work by dragging or clicking on a page (rather than selecting text). */
-const POINTER_TOOLS: ReadonlySet<Tool> = new Set(["shape", "sign"]);
-const TOOL_KEYS: Record<string, Tool> = { v: "none", t: "text", d: "ink", s: "shape", h: "highlight", u: "markup", i: "image", g: "sign" };
+const POINTER_TOOLS: ReadonlySet<Tool> = new Set(["note", "shape", "sign"]);
+const TOOL_KEYS: Record<string, Tool> = { v: "none", t: "text", n: "note", d: "ink", s: "shape", h: "highlight", u: "markup", i: "image", g: "sign" };
 const HIGHLIGHT_COLORS = "yellow=#FFFF98,green=#53FFBC,blue=#80EBFF,pink=#FFCBE6,red=#FF4F5F";
 
 interface UIManager {
@@ -123,6 +125,7 @@ const PARAM_KEYS: [number, keyof ToolParams][] = [
 const TOOL_PARAMS: Record<Tool, (keyof ToolParams)[]> = {
   none: [],
   text: ["textColor", "textSize"],
+  note: [],
   ink: ["inkColor", "inkThickness", "inkOpacity"],
   shape: [],
   highlight: ["highlightColor", "highlightThickness"],
@@ -270,6 +273,7 @@ export class App {
       selectionChanged: (sel) => this.#renderSelection(sel),
     });
 
+    useIcons(icon);
     this.panels = new Panels(this.linkService, this.viewer, {
       saveAttachment: (file) => void this.saveAttachment(file),
       tabsChanged: () => this.#showPanel(readPref("panel") ?? "panelPages", false),
@@ -384,6 +388,7 @@ export class App {
     storage.onSetModified = () => {
       this.#annotDirty = true;
       this.#renderTitle();
+      this.#commentsChanged();
     };
     storage.onResetModified = () => {
       this.#annotDirty = false;
@@ -398,6 +403,7 @@ export class App {
     this.viewer.setPageLabels(labels);
     void this.thumbs.setDocument(doc, { current: view.page - 1, selection: opts.selection, labels });
     void this.panels.setDocument(doc);
+    this.#commentsChanged();
     if (old) await old.loadingTask.destroy();
 
     $("app").classList.remove("no-doc");
@@ -503,7 +509,7 @@ export class App {
    * form values, so when anything is pending it works from the saved bytes
    * (`current`, or computed here) instead of the open document.
    */
-  async #withSavedDoc<R>(fn: (doc: ops.AssemblerDoc) => Promise<R>, current?: Uint8Array): Promise<R> {
+  async #withSavedDoc<R>(fn: (doc: PDFDocumentProxy) => Promise<R>, current?: Uint8Array): Promise<R> {
     const doc = this.#requireDoc();
     if (doc.annotationStorage.size === 0) return fn(doc);
     const { doc: saved } = await openPdf(current ?? (await this.currentBytes()), { password: this.#password });
@@ -1013,6 +1019,73 @@ export class App {
     this.#renderTool();
   }
 
+  // ------------------------------------------------------------- comments
+
+  /** The note dialog: comment text (and the author's name), or null if cancelled. */
+  async #askComment(title: string, text: string, ok: string): Promise<{ text: string; author: string } | null> {
+    $("noteTitle").textContent = title;
+    $("noteOk").textContent = ok;
+    const field = $<HTMLTextAreaElement>("noteText");
+    const author = $<HTMLInputElement>("noteAuthor");
+    field.value = text;
+    author.value = readPref("author") ?? "";
+    if ((await showDialog($<HTMLDialogElement>("noteDialog"))) !== "ok") return null;
+    writePref("author", author.value.trim());
+    return { text: field.value.trim(), author: author.value.trim() };
+  }
+
+  /** Add a sticky note with its icon's top left at `at` (PDF points). */
+  async addNote(pageIndex: number, at: marks.Point) {
+    const answer = await this.#askComment("Add note", "", "Add");
+    if (!answer?.text) return;
+    await this.#edit("Add note", (b) => comments.addNote(b, pageIndex, at, answer.text, { author: answer.author }), {
+      page: pageIndex + 1,
+    });
+  }
+
+  async editComment(item: CommentItem) {
+    const answer = await this.#askComment(`Edit ${commentKind(item.subtype).toLowerCase()} comment`, item.text, "Save");
+    if (!answer || answer.text === item.text) return;
+    await this.#edit("Edit comment", (b) => comments.setComment(b, item, answer.text), { page: item.pageIndex + 1 });
+  }
+
+  async deleteComment(item: CommentItem) {
+    const kind = commentKind(item.subtype).toLowerCase();
+    if (!(await confirmDialog(`Delete this ${kind}?`, item.text ? `“${item.text.slice(0, 120)}”` : "It has no comment.", "Delete"))) return;
+    await this.#edit(`Delete ${kind}`, (b) => comments.deleteAnnotation(b, item), { page: item.pageIndex + 1 });
+  }
+
+  #commentsTimer = 0;
+
+  /** The document's comments may have changed: refresh the panel if it is showing. */
+  #commentsChanged() {
+    clearTimeout(this.#commentsTimer);
+    if ($("panelComments").hidden || !$("app").classList.contains("sidebar-open")) return;
+    this.#commentsTimer = window.setTimeout(() => void this.#refreshComments(), 300);
+  }
+
+  async #refreshComments() {
+    const doc = this.doc;
+    if (!doc) return;
+    // Unsaved annotations count too: list them from the document as it would be saved.
+    const items = await this.#withSavedDoc(collectComments).catch((e: unknown) => {
+      console.warn("comments", e);
+      return null;
+    });
+    if (!items || doc !== this.doc) return;
+    renderComments(items, (i) => this.#labels?.[i] ?? String(i + 1), {
+      show: (item) =>
+        this.viewer.scrollPageIntoView({
+          pageNumber: item.pageIndex + 1,
+          destArray: [null, { name: "XYZ" }, item.rect[0] - 20, item.rect[3] + 20, null],
+          allowNegativeOffset: true,
+        }),
+      edit: (item) => void this.editComment(item),
+      remove: (item) => void this.deleteComment(item),
+    });
+    $("tabComments").title = items.length ? `Comments (${items.length})` : "Comments";
+  }
+
   // ------------------------------------ shapes, text markup, Fill & Sign
 
   /** Add pdf.js editors to a rendered page, as one step pdf.js can undo. */
@@ -1084,6 +1157,7 @@ export class App {
       container.focus({ preventScroll: true });
       if (this.#tool === "sign") void this.#place(hit.pageIndex, hit.x, hit.y);
       else if (this.#tool === "shape") this.#dragShape(e, hit);
+      else if (this.#tool === "note") void this.addNote(hit.pageIndex, this.#toPdf(hit.pageIndex, hit.x, hit.y));
     });
     // Text markup applies to the text selected with the tool on.
     container.addEventListener("pointerup", () => {
@@ -1419,6 +1493,7 @@ export class App {
       $(t.dataset.panel!).hidden = !on;
     }
     if (remember) writePref("panel", tab.dataset.panel!);
+    if (tab.dataset.panel === "panelComments") this.#commentsChanged();
   }
 
   #wireSidebar() {
@@ -1470,6 +1545,7 @@ export class App {
 
   #setSidebar(open: boolean) {
     $("app").classList.toggle("sidebar-open", open);
+    if (open) this.#commentsChanged();
     $("btnSidebar").setAttribute("aria-pressed", String(open));
     writePref("sidebar", open ? "open" : "closed");
     this.#refit();

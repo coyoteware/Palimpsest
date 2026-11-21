@@ -190,15 +190,16 @@ export async function assemble(doc: AssemblerDoc, plan: PlanPage[], extras: Extr
   return out;
 }
 
-const loadForEdit = (bytes: Uint8Array) =>
+/** Open a PDF for an edit pdf.js cannot make; `what` names the edit for the error pdf-lib gives on encrypted files. */
+export const loadForEdit = (bytes: Uint8Array, what = "Rotation and property edits are") =>
   PDFDocument.load(bytes, { updateMetadata: false }).catch((err: unknown) => {
     if (err instanceof Error && /encrypt/i.test(err.message)) {
-      throw new UserError("Rotation and property edits are not supported on encrypted PDFs.");
+      throw new UserError(`${what} not supported on encrypted PDFs.`);
     }
     throw err;
   });
 
-const saveEdited = (doc: PDFDocument) =>
+export const saveEdited = (doc: PDFDocument) =>
   doc.save({ updateFieldAppearances: false, useObjectStreams: true });
 
 /** Rotate pages clockwise by `delta` degrees (a multiple of 90). */

@@ -53,6 +53,7 @@
         <div class="group tools needs-doc" role="radiogroup" aria-label="Editing tools">
           <button class="icon tool" data-tool="none" data-icon="pointer" title="Select (V)" aria-label="Select" role="radio" aria-checked="true"></button>
           <button class="icon tool" data-tool="text" data-icon="text" title="Add text (T)" aria-label="Add text" role="radio" aria-checked="false"></button>
+          <button class="icon tool" data-tool="note" data-icon="note" title="Add note (N)" aria-label="Add note" role="radio" aria-checked="false"></button>
           <button class="icon tool" data-tool="ink" data-icon="pen" title="Draw (D)" aria-label="Draw" role="radio" aria-checked="false"></button>
           <button class="icon tool" data-tool="shape" data-icon="shapes" title="Shapes (S)" aria-label="Shapes" role="radio" aria-checked="false"></button>
           <button class="icon tool" data-tool="highlight" data-icon="highlight" title="Highlight (H)" aria-label="Highlight" role="radio" aria-checked="false"></button>
@@ -90,6 +91,7 @@
           <button class="opt text-button" data-for="image" id="btnAddImage">Choose image…</button>
           <span class="opt muted" data-for="sign" id="signHint" aria-live="polite"></span>
           <span class="opt muted" data-for="markup">Select text to mark it</span>
+          <span class="opt muted" data-for="note">Click on the page to add a note</span>
         </div>
 
         <div class="spacer"></div>
@@ -117,6 +119,7 @@
           <button id="tabPages" role="tab" class="icon" data-icon="pages" data-panel="panelPages" aria-controls="panelPages" title="Pages" aria-label="Pages" aria-selected="true"></button>
           <button id="tabOutline" role="tab" class="icon" data-icon="bookmark" data-panel="panelOutline" aria-controls="panelOutline" title="Bookmarks" aria-label="Bookmarks" aria-selected="false" tabindex="-1"></button>
           <button id="tabAttachments" role="tab" class="icon" data-icon="paperclip" data-panel="panelAttachments" aria-controls="panelAttachments" title="Attachments" aria-label="Attachments" aria-selected="false" tabindex="-1" hidden></button>
+          <button id="tabComments" role="tab" class="icon" data-icon="comment" data-panel="panelComments" aria-controls="panelComments" title="Comments" aria-label="Comments" aria-selected="false" tabindex="-1"></button>
           <button id="tabLayers" role="tab" class="icon" data-icon="layers" data-panel="panelLayers" aria-controls="panelLayers" title="Layers" aria-label="Layers" aria-selected="false" tabindex="-1" hidden></button>
         </div>
         <div id="panelPages" class="panel" role="tabpanel" aria-labelledby="tabPages">
@@ -142,6 +145,10 @@
         </div>
         <div id="panelLayers" class="panel" role="tabpanel" aria-labelledby="tabLayers" hidden>
           <div id="layerList" class="layer-list"></div>
+        </div>
+        <div id="panelComments" class="panel" role="tabpanel" aria-labelledby="tabComments" hidden>
+          <ul id="commentList" class="comment-list" aria-label="Comments"></ul>
+          <p id="commentsEmpty" class="panel-empty muted">No comments yet. Add a note with the note tool (N), or mark up the page.</p>
         </div>
         <div id="sidebarResizer" class="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
       </aside>
@@ -237,6 +244,15 @@
         <ol id="mergeList" class="file-list" aria-label="Files to merge"></ol>
         <button type="button" id="mergeAdd" class="text-button">Add files…</button>
         <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="mergeOk">Merge</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="noteDialog" aria-labelledby="noteTitle">
+      <form method="dialog">
+        <h2 id="noteTitle">Add note</h2>
+        <textarea id="noteText" rows="5" aria-label="Comment"></textarea>
+        <label class="note-author">Your name <input id="noteAuthor" autocomplete="name" /></label>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="noteOk">Add</button></menu>
       </form>
     </dialog>
 
