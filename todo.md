@@ -20,7 +20,7 @@ Features Adobe Reader (and Acrobat Pro) have that Palimpsest lacks, ordered by c
 - [ ] **Recent files**, and reopening a file at its last page and zoom.
 - [x] **Print options**: page range, current page, annotations on or off, fit or actual size.
 - [x] **Hand tool, marquee zoom, snapshot to clipboard**.
-- [ ] **Export pages as images** (PNG, JPEG).
+- [x] **Export pages as images** (PNG, JPEG).
 - [ ] **Tabs**: several documents in one window.
 - [ ] **Fuller properties**: fonts, security and permissions, PDF version, producer.
 

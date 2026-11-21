@@ -497,65 +497,144 @@ export class App {
     });
   }
 
-  /** The print dialog: what to print, or null if cancelled. */
-  async #askPrint(): Promise<PrintOptions | null> {
+  /**
+   * The "which pages" choice in the print and export dialogs (radio buttons
+   * named `${prefix}Pages`, and a `${prefix}Range` field). Fills in the counts
+   * and returns a function giving the chosen pages, 0-based, in order; it
+   * throws a UserError for a range that is not valid.
+   */
+  #pageChoice(dialog: HTMLDialogElement, prefix: string) {
     const n = this.pageCount;
-    const dialog = $<HTMLDialogElement>("printDialog");
-    const range = $<HTMLInputElement>("printRange");
-    const preview = $("printPreview");
-    const ok = $<HTMLButtonElement>("printOk");
-    const radio = (name: string, value: string) => dialog.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`)!;
+    const range = $<HTMLInputElement>(`${prefix}Range`);
+    const radio = (value: string) => dialog.querySelector<HTMLInputElement>(`input[name="${prefix}Pages"][value="${value}"]`)!;
     const selection = this.thumbs.selection;
     const label = (i: number) => this.#labels?.[i] ?? String(i + 1);
-    $("printAllCount").textContent = `(${plural(n, "page")})`;
-    $("printCurrentPage").textContent = `(${label(this.page - 1)})`;
-    $("printSelectedChoice").hidden = selection.length < 2;
-    $("printSelectedCount").textContent = `(${plural(selection.length, "page")})`;
-    if (radio("printPages", "selected").checked && selection.length < 2) radio("printPages", "all").checked = true;
-    const chosen = (name: string) => dialog.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)!.value;
-    const pages = (): number[] => {
-      switch (chosen("printPages")) {
-        case "current":
-          return [this.page - 1];
-        case "selected":
-          return selection;
-        case "range":
-          return ops.parseRanges(range.value, n).flatMap(([a, b]) => Array.from({ length: b - a + 1 }, (_, k) => a + k));
-        default:
-          return Array.from({ length: n }, (_, i) => i);
-      }
+    $(`${prefix}AllCount`).textContent = `(${plural(n, "page")})`;
+    $(`${prefix}CurrentPage`).textContent = `(${label(this.page - 1)})`;
+    $(`${prefix}SelectedChoice`).hidden = selection.length < 2;
+    $(`${prefix}SelectedCount`).textContent = `(${plural(selection.length, "page")})`;
+    if (radio("selected").checked && selection.length < 2) radio("all").checked = true;
+    for (const r of dialog.querySelectorAll<HTMLInputElement>(`input[name="${prefix}Pages"]`)) r.autofocus = r.checked;
+    const choose = () => {
+      radio("range").checked = true;
+      range.dispatchEvent(new Event("change", { bubbles: true }));
     };
+    range.oninput = range.onfocus = choose;
+    return {
+      typed: () => range.value.trim() !== "",
+      pages: (): number[] => {
+        switch (dialog.querySelector<HTMLInputElement>(`input[name="${prefix}Pages"]:checked`)!.value) {
+          case "current":
+            return [this.page - 1];
+          case "selected":
+            return selection;
+          case "range":
+            return ops.parseRanges(range.value, n).flatMap(([a, b]) => Array.from({ length: b - a + 1 }, (_, k) => a + k));
+          default:
+            return Array.from({ length: n }, (_, i) => i);
+        }
+      },
+    };
+  }
+
+  /** Run a dialog whose OK button is enabled while `check` (re-run on every change) does not throw. */
+  async #choiceDialog(dialog: HTMLDialogElement, ok: HTMLButtonElement, preview: HTMLElement, describe: () => string, typed: () => boolean) {
     const update = () => {
       try {
-        preview.textContent = `${plural(pages().length, "page")} to print`;
+        preview.textContent = describe();
         preview.classList.remove("error");
         ok.disabled = false;
       } catch (e) {
         preview.textContent = errorText(e);
-        preview.classList.toggle("error", range.value.trim() !== "");
+        preview.classList.toggle("error", typed());
         ok.disabled = true;
       }
     };
     const ac = new AbortController();
     dialog.addEventListener("change", update, { signal: ac.signal });
-    const chooseRange = () => {
-      radio("printPages", "range").checked = true;
-      update();
-    };
-    range.addEventListener("input", chooseRange, { signal: ac.signal });
-    range.addEventListener("focus", chooseRange, { signal: ac.signal });
-    for (const r of dialog.querySelectorAll<HTMLInputElement>('input[name="printPages"]')) r.autofocus = r.checked;
+    dialog.addEventListener("input", update, { signal: ac.signal });
     update();
     try {
-      if ((await showDialog(dialog)) !== "ok") return null;
-      return {
-        pages: pages(),
-        annotations: $<HTMLInputElement>("printComments").checked,
-        size: chosen("printSize") as PrintOptions["size"],
-      };
+      return (await showDialog(dialog)) === "ok";
     } finally {
       ac.abort();
     }
+  }
+
+  /** The print dialog: what to print, or null if cancelled. */
+  async #askPrint(): Promise<PrintOptions | null> {
+    const dialog = $<HTMLDialogElement>("printDialog");
+    const choice = this.#pageChoice(dialog, "print");
+    const chosen = (name: string) => dialog.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)!.value;
+    const ok = await this.#choiceDialog(dialog, $<HTMLButtonElement>("printOk"), $("printPreview"), () => `${plural(choice.pages().length, "page")} to print`, choice.typed);
+    if (!ok) return null;
+    return {
+      pages: choice.pages(),
+      annotations: $<HTMLInputElement>("printComments").checked,
+      size: chosen("printSize") as PrintOptions["size"],
+    };
+  }
+
+  /** Save pages as PNG or JPEG images: one file, or one per page in a folder. */
+  async exportImages() {
+    const doc = this.doc;
+    if (!doc || this.#busy) return;
+    const dialog = $<HTMLDialogElement>("exportDialog");
+    const choice = this.#pageChoice(dialog, "export");
+    const format = () => dialog.querySelector<HTMLInputElement>('input[name="exportFormat"]:checked')!.value as "png" | "jpeg";
+    const names = () => {
+      const ext = format() === "png" ? "png" : "jpg";
+      const base = (this.fileName || "document").replace(/\.pdf$/i, "");
+      return choice.pages().map((i) => `${base}-p${i + 1}.${ext}`);
+    };
+    const ok = await this.#choiceDialog(
+      dialog,
+      $<HTMLButtonElement>("exportOk"),
+      $("exportPreview"),
+      () => {
+        const list = names();
+        return list.length === 1 ? `1 image: ${list[0]}` : `${plural(list.length, "image")}: ${summarise(list)}`;
+      },
+      choice.typed,
+    );
+    if (!ok) return;
+    const pages = choice.pages();
+    const list = names();
+    const kind = format();
+    const dpi = Number($<HTMLSelectElement>("exportDpi").value) || 150;
+    let targets: files.SaveTarget[];
+    let where = "";
+    try {
+      if (pages.length === 1) {
+        // One image: the user names it. It is written once rendered.
+        const chosen = await desktop.saveAs(list[0], kind);
+        if (!chosen) return;
+        targets = [{ name: chosen.name, write: (bytes) => desktop.write(chosen.path, bytes) }];
+      } else {
+        const dest = await files.saveToFolder(list, kind);
+        if (!dest) return;
+        const existing = dest.files.filter((f) => f.exists).map((f) => f.name);
+        if (
+          existing.length &&
+          !(await confirmDialog("Replace existing files?", `${listNames(existing)} ${existing.length === 1 ? "is" : "are"} already in ${dest.folder}.`, "Replace"))
+        ) {
+          return;
+        }
+        targets = dest.files;
+        where = ` in ${dest.folder}`;
+      }
+    } catch (e) {
+      return toast(errorText(e), "error");
+    }
+    await this.#withBusy("Exporting…", async () => {
+      await this.#withSavedDoc(async (source) => {
+        for (const [k, index] of pages.entries()) {
+          $("busyLabel").textContent = `Exporting… ${k + 1}/${pages.length}`;
+          await targets[k].write(await renderImage(source, index, dpi, kind));
+        }
+      });
+      toast(pages.length === 1 ? `Saved ${targets[0].name}` : `Saved ${plural(pages.length, "image")}${where}`);
+    });
   }
 
   // ----------------------------------------------------------- page ops
@@ -1876,6 +1955,7 @@ export class App {
     on("pgInsert", () => this.pickAndInsert());
     on("pgExtract", () => this.extractPages());
     on("pgSplit", () => this.split());
+    on("pgExport", () => this.exportImages());
     on("pgDelete", () => this.deletePages());
 
     for (const b of document.querySelectorAll<HTMLElement>(".toolbar .tool:not([aria-controls])")) {
@@ -2227,6 +2307,26 @@ function normalizeHex(color: string) {
 function listNames(names: string[]) {
   if (names.length <= 3) return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   return `${names.slice(0, 2).join(", ")} and ${plural(names.length - 2, "other file")}`;
+}
+
+/** Page `index` of `doc` as a PNG or JPEG at `dpi`, annotations and form values included. */
+async function renderImage(doc: PDFDocumentProxy, index: number, dpi: number, kind: "png" | "jpeg") {
+  const page = await doc.getPage(index + 1);
+  const viewport = page.getViewport({ scale: dpi / 72 });
+  const canvas = document.createElement("canvas");
+  // Nearest pixel, not up: 11 in at 150 dpi is 1650 pixels, though the arithmetic gives 1650.0000001.
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fff"; // JPEG has no transparency; PNG pages are white too
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvas, viewport, intent: "print", annotationMode: AnnotationMode.ENABLE_STORAGE }).promise;
+  page.cleanup();
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not make the image."))), `image/${kind}`, 0.92),
+  );
+  canvas.width = canvas.height = 0; // free its memory now
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 /** A few file names to stand for a longer list. */

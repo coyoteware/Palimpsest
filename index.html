@@ -136,6 +136,7 @@
             <button id="pgInsert" class="icon" data-icon="insertPdf" title="Insert pages from PDF…" aria-label="Insert pages from PDF"></button>
             <button id="pgExtract" class="icon" data-icon="extract" title="Save selected pages as…" aria-label="Extract pages"></button>
             <button id="pgSplit" class="icon" data-icon="split" title="Split into files…" aria-label="Split into files"></button>
+          <button id="pgExport" class="icon" data-icon="exportImage" title="Export as images…" aria-label="Export pages as images"></button>
             <button id="pgDelete" class="icon danger" data-icon="trash" title="Delete (Del)" aria-label="Delete pages"></button>
           </div>
           <div id="selectionInfo" class="selection-info muted" aria-live="polite"></div>
@@ -270,6 +271,33 @@
         <label class="check print-comments"><input type="checkbox" id="printComments" checked /> Print comments and markup</label>
         <p id="printPreview" class="preview muted" aria-live="polite"></p>
         <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="printOk">Print</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="exportDialog" aria-labelledby="exportTitle">
+      <form method="dialog">
+        <h2 id="exportTitle">Export pages as images</h2>
+        <fieldset class="choices">
+          <legend>Pages</legend>
+          <label class="choice"><input type="radio" name="exportPages" value="all" checked /> All <span id="exportAllCount" class="muted"></span></label>
+          <label class="choice"><input type="radio" name="exportPages" value="current" /> Current page <span id="exportCurrentPage" class="muted"></span></label>
+          <label class="choice" id="exportSelectedChoice"><input type="radio" name="exportPages" value="selected" /> Selected pages <span id="exportSelectedCount" class="muted"></span></label>
+          <label class="choice"><input type="radio" name="exportPages" value="range" /> Pages <input id="exportRange" placeholder="1-3, 5, 8-" autocomplete="off" spellcheck="false" aria-label="Pages to export" /></label>
+        </fieldset>
+        <fieldset class="choices">
+          <legend>Format</legend>
+          <label class="choice"><input type="radio" name="exportFormat" value="png" checked /> PNG</label>
+          <label class="choice"><input type="radio" name="exportFormat" value="jpeg" /> JPEG</label>
+        </fieldset>
+        <label class="export-dpi">Resolution
+          <select id="exportDpi">
+            <option value="72">72 dpi (screen)</option>
+            <option value="150" selected>150 dpi</option>
+            <option value="300">300 dpi (print)</option>
+          </select>
+        </label>
+        <p id="exportPreview" class="preview muted" aria-live="polite"></p>
+        <menu><button type="button" value="cancel">Cancel</button><button value="ok" class="primary" id="exportOk">Export…</button></menu>
       </form>
     </dialog>
 

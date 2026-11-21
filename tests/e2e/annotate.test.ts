@@ -1,4 +1,5 @@
 /** Shapes, text markup and Fill & Sign: what they draw, and what is saved. */
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { answer, clickPage, launch, onPage, opened, poll, sampleIn, savedTo, shellLog, useApp, workDir } from "./harness";
@@ -309,4 +310,36 @@ test("print: which pages, with or without comments, fit or actual size", async (
   await app.click('#printDialog button[value="cancel"]');
   await new Promise((r) => setTimeout(r, 300));
   expect(printCount()).toBe(3);
+});
+
+test("export pages as PNG into a folder, or one page as JPEG", async () => {
+  const { app, dir } = await openSample();
+  const folder = join(dir, "images");
+  mkdirSync(folder);
+  answer({ folder });
+  await app.click("#pgExport");
+  await poll(() => app.exec("return document.querySelector('#exportDialog').open")).toBe(true);
+  expect(await app.text("#exportPreview")).toBe("5 images: sample-p1.png, sample-p2.png, …, sample-p5.png");
+  await app.fill("#exportRange", "2-3");
+  await poll(() => app.text("#exportPreview")).toBe("2 images: sample-p2.png, sample-p3.png");
+  await app.click("#exportOk");
+  await poll(() => app.text(".toast")).toBe("Saved 2 images in images");
+  expect(readdirSync(folder).sort()).toEqual(["sample-p2.png", "sample-p3.png"]);
+  const png = readFileSync(join(folder, "sample-p2.png"));
+  expect(png.subarray(1, 4).toString()).toBe("PNG");
+  // 150 dpi: a US Letter page (8.5 × 11 in) is 1275 × 1650 pixels.
+  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1275, 1650]);
+
+  const out = join(dir, "page.jpg");
+  answer({ save: out });
+  await app.click("#pgExport");
+  await poll(() => app.exec("return document.querySelector('#exportDialog').open")).toBe(true);
+  await app.click('#exportDialog input[name="exportPages"][value="current"]');
+  await app.click('#exportDialog input[value="jpeg"]');
+  await app.fill("#exportDpi", "72");
+  await poll(() => app.text("#exportPreview")).toBe("1 image: sample-p1.jpg");
+  await app.click("#exportOk");
+  await poll(() => existsSync(out)).toBe(true);
+  expect([...readFileSync(out).subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  expect(shellLog().flatMap((e) => e.suggestedName ?? [])).toEqual(["sample-p1.jpg"]);
 });

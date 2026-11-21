@@ -440,6 +440,8 @@ dialog .choice input[type="number"] { width: 64px; }
 dialog .choice input:not([type]) { flex: 1; width: auto; min-width: 0; }
 dialog fieldset { border: 0; margin: 0 0 6px; padding: 0; }
 dialog legend { padding: 0; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.export-dpi { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; color: var(--muted); }
+dialog .export-dpi select { width: auto; color: var(--text); }
 .print-comments { display: flex; align-items: center; gap: 6px; margin: 4px 0 8px; }
 dialog .print-comments input { width: auto; margin: 0; }
 .preview { min-height: 2.8em; margin: 0; font-size: 12px; overflow-wrap: anywhere; }
